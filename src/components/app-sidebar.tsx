@@ -17,6 +17,14 @@ import {
   FileText,
   BarChart3,
   Shield,
+  Plus,
+  UserCheck,
+  UserMinus,
+  Move,
+  Calendar,
+  ArrowLeftRight,
+  Trash2,
+  Wrench,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
@@ -86,16 +94,49 @@ const data = {
           url: "/assets",
         },
         {
-          title: "Hardware",
-          url: "/assets/hardware",
+          title: "Add Asset",
+          url: "/assets/add",
+          icon: Plus,
         },
         {
-          title: "Software",
-          url: "/assets/software",
+          title: "Check Out",
+          url: "/assets/checkout",
+          icon: UserCheck,
         },
         {
-          title: "Licenses",
-          url: "/assets/licenses",
+          title: "Check In",
+          url: "/assets/checkin",
+          icon: UserMinus,
+        },
+        {
+          title: "Move Asset",
+          url: "/assets/move",
+          icon: Move,
+        },
+        {
+          title: "Reserve Asset",
+          url: "/assets/reserve",
+          icon: Calendar,
+        },
+        {
+          title: "Lease Asset",
+          url: "/assets/lease",
+          icon: ArrowLeftRight,
+        },
+        {
+          title: "Lease Return",
+          url: "/assets/lease-return",
+          icon: ArrowLeftRight,
+        },
+        {
+          title: "Dispose Asset",
+          url: "/assets/dispose",
+          icon: Trash2,
+        },
+        {
+          title: "Maintenance",
+          url: "/assets/maintenance",
+          icon: Wrench,
         },
       ],
     },
