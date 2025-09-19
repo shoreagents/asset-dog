@@ -165,16 +165,60 @@ const data = {
       icon: BarChart3,
       items: [
         {
+          title: "Overview",
+          url: "/reports",
+        },
+        {
+          title: "Automated Reports",
+          url: "/reports/automated",
+        },
+        {
+          title: "Custom Reports",
+          url: "/reports/custom",
+        },
+        {
           title: "Asset Reports",
           url: "/reports/assets",
         },
         {
-          title: "Usage Reports",
-          url: "/reports/usage",
+          title: "Audit Reports",
+          url: "/reports/audit",
         },
         {
-          title: "Compliance",
-          url: "/reports/compliance",
+          title: "Check-Out Reports",
+          url: "/reports/checkout",
+        },
+        {
+          title: "Depreciation Reports",
+          url: "/reports/depreciation",
+        },
+        {
+          title: "Insurance Reports",
+          url: "/reports/insurance",
+        },
+        {
+          title: "Leased Asset Reports",
+          url: "/reports/leased",
+        },
+        {
+          title: "Maintenance Reports",
+          url: "/reports/maintenance",
+        },
+        {
+          title: "Reservation Reports",
+          url: "/reports/reservation",
+        },
+        {
+          title: "Status Reports",
+          url: "/reports/status",
+        },
+        {
+          title: "Transaction Reports",
+          url: "/reports/transaction",
+        },
+        {
+          title: "Other Reports",
+          url: "/reports/other",
         },
       ],
     },
