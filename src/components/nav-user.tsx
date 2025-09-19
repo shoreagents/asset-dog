@@ -9,6 +9,8 @@ import {
   Sparkles,
 } from "lucide-react"
 
+import { ThemeToggle } from "@/components/theme-toggle"
+
 import {
   Avatar,
   AvatarFallback,
@@ -81,6 +83,10 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              <div className="flex items-center justify-between px-2 py-1.5">
+                <span className="text-sm font-medium">Theme</span>
+                <ThemeToggle />
+              </div>
               <DropdownMenuItem>
                 <Sparkles />
                 Upgrade to Pro
