@@ -9,6 +9,9 @@ import {
   useSensor,
   useSensors,
   DragEndEvent,
+  DragOverEvent,
+  DragStartEvent,
+  DragOverlay,
 } from '@dnd-kit/core'
 import {
   arrayMove,
@@ -20,12 +23,28 @@ import {
 interface SortableProviderProps {
   children: React.ReactNode
   onDragEnd: (event: DragEndEvent) => void
+  onDragOver?: (event: DragOverEvent) => void
+  onDragStart?: (event: DragStartEvent) => void
   items: string[]
+  activeId?: string | null
+  overId?: string | null
 }
 
-export function SortableProvider({ children, onDragEnd, items }: SortableProviderProps) {
+export function SortableProvider({ 
+  children, 
+  onDragEnd, 
+  onDragOver, 
+  onDragStart, 
+  items, 
+  activeId,
+  overId
+}: SortableProviderProps) {
   const sensors = useSensors(
-    useSensor(PointerSensor),
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 3,
+      },
+    }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
     })
@@ -35,6 +54,8 @@ export function SortableProvider({ children, onDragEnd, items }: SortableProvide
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
       onDragEnd={onDragEnd}
     >
       <SortableContext items={items} strategy={rectSortingStrategy}>

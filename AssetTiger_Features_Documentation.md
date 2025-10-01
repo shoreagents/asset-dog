@@ -20,7 +20,7 @@ This module manages your company’s physical and digital assets.
 
 \- Maintenance – Records scheduled or completed maintenance on assets. Helps track costs and service history.
 
-\- Move – Transfers assets between sites, departments, or locations within the company.
+
 
 \- Reserve – Allows assets to be reserved for future use by specific employees or departments.
 
@@ -120,4 +120,4 @@ Configuration and customization settings.
 
 \- Customize Forms – Modify forms for data entry to suit business needs.
 
-\- Customize Emails – Personalize automated system emails and notifications.
+\- Customize Emails – Personalize automated system emails and notifications. 

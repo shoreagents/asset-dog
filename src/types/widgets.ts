@@ -5,15 +5,14 @@ export interface Widget {
   title: string;
   size: WidgetSize;
   position: { x: number; y: number };
-  data?: any;
+  data?: Record<string, unknown>;
 }
 
 export type WidgetType = 
   | 'asset-stats'
-  | 'recent-assets'
+  | 'recent-added-assets'
   | 'asset-location'
   | 'maintenance-alerts'
-  | 'quick-actions'
   | 'asset-value-chart'
   | 'department-overview'
   | 'asset-status-pie';

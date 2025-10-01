@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter, useParams } from "next/navigation"
+import { getAllAssets } from "@/lib/centralized-assets"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -47,30 +48,8 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 
 // Mock asset data (in a real app, this would come from an API)
-const mockAssets = [
-  {
-    id: "AST-001",
-    name: "MacBook Pro 16\"",
-    category: "IT Equipment",
-    location: "New York Office - Floor 2",
-    status: "Available",
-    value: 2999.99,
-    assignedTo: null,
-    serialNumber: "MBP123456",
-    manufacturer: "Apple",
-  },
-  {
-    id: "AST-002",
-    name: "Dell Workstation",
-    category: "IT Equipment", 
-    location: "Chicago Office - IT Room",
-    status: "Available",
-    value: 1899.99,
-    assignedTo: null,
-    serialNumber: "DW789012",
-    manufacturer: "Dell",
-  },
-]
+// Use centralized asset data
+const mockAssets = getAllAssets()
 
 // Form validation schema
 const checkoutFormSchema = z.object({
@@ -176,7 +155,7 @@ export default function CheckOutAssetPage() {
           <div className="flex flex-1 flex-col items-center justify-center p-4">
             <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
             <h1 className="text-2xl font-bold mb-2">Asset Not Found</h1>
-            <p className="text-muted-foreground mb-4">The asset you're looking for doesn't exist.</p>
+            <p className="text-muted-foreground mb-4">The asset you&apos;re looking for doesn&apos;t exist.</p>
             <Button onClick={() => router.push("/assets")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Assets
@@ -296,7 +275,7 @@ export default function CheckOutAssetPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Value:</span>
-                    <span>${asset.value.toLocaleString()}</span>
+                    <span>₱{asset.value.toLocaleString()}</span>
                   </div>
                   {asset.serialNumber && (
                     <div className="flex justify-between">

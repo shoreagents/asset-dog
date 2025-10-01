@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { getAllAssets } from "@/lib/centralized-assets";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   Breadcrumb,
@@ -10,6 +11,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -88,41 +90,17 @@ export default function ReportsAssetsPage() {
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Mock data for demonstration
-  const mockAssets: AssetData[] = [
-    {
-      id: "AST-001",
-      name: "Dell Laptop",
-      category: "IT Equipment",
-      location: "Main Office",
-      status: "Available",
-      purchaseDate: "2023-01-15",
-      cost: 1200,
-      assignedTo: "John Doe",
-      department: "IT",
-    },
-    {
-      id: "AST-002",
-      name: "Office Chair",
-      category: "Furniture",
-      location: "Main Office",
-      status: "Checked Out",
-      purchaseDate: "2023-02-20",
-      cost: 350,
-      assignedTo: "Jane Smith",
-      department: "HR",
-    },
-    {
-      id: "AST-003",
-      name: "Company Van",
-      category: "Vehicles",
-      location: "Warehouse",
-      status: "Leased",
-      purchaseDate: "2022-11-10",
-      cost: 25000,
-      assignedTo: "Delivery Team",
-      department: "Operations",
-    },
-  ];
+  const mockAssets: AssetData[] = getAllAssets().map(asset => ({
+    id: asset.id,
+    name: asset.name,
+    category: asset.category,
+    location: asset.location,
+    status: asset.status,
+    purchaseDate: asset.purchaseDate,
+    cost: asset.value,
+    assignedTo: asset.assignedTo || "Unassigned",
+    department: asset.department,
+  }))
 
   const handleFieldToggle = (fieldId: string) => {
     setFilters(prev => ({
@@ -324,20 +302,22 @@ export default function ReportsAssetsPage() {
               {/* Data Fields Selection */}
               <div className="space-y-2">
                 <Label>Data Fields</Label>
-                <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {availableFields.map(field => (
-                    <div key={field.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={field.id}
-                        checked={filters.selectedFields.includes(field.id)}
-                        onCheckedChange={() => handleFieldToggle(field.id)}
-                      />
-                      <Label htmlFor={field.id} className="text-sm">
-                        {field.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
+                <ScrollArea className="max-h-48">
+                  <div className="space-y-2 pr-4">
+                    {availableFields.map(field => (
+                      <div key={field.id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={field.id}
+                          checked={filters.selectedFields.includes(field.id)}
+                          onCheckedChange={() => handleFieldToggle(field.id)}
+                        />
+                        <Label htmlFor={field.id} className="text-sm">
+                          {field.label}
+                        </Label>
+                      </div>
+                    ))}
+                  </div>
+                </ScrollArea>
               </div>
 
               {/* Generate Report Button */}
@@ -385,7 +365,7 @@ export default function ReportsAssetsPage() {
               {generatedReport.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">
                   <Filter className="mx-auto h-12 w-12 mb-4 opacity-50" />
-                  <p>No report generated yet. Configure filters and click "Generate Report" to see results.</p>
+                  <p>No report generated yet. Configure filters and click &quot;Generate Report&quot; to see results.</p>
                 </div>
               ) : (
                 <div className="overflow-x-auto">

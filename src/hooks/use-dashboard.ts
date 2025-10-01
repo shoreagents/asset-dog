@@ -1,15 +1,14 @@
 "use client"
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { arrayMove } from '@dnd-kit/sortable'
 import { Widget, WidgetType, WidgetSize } from '@/types/widgets'
 import { widgetConfigs, defaultWidgets } from '@/lib/dashboard-data'
 
 // Widget component imports
 import { AssetStatsWidget } from '@/components/widgets/asset-stats-widget'
-import { RecentAssetsWidget } from '@/components/widgets/recent-assets-widget'
+import { RecentAddedAssetsWidget } from '@/components/widgets/recent-added-assets-widget'
 import { MaintenanceAlertsWidget } from '@/components/widgets/maintenance-alerts-widget'
-import { QuickActionsWidget } from '@/components/widgets/quick-actions-widget'
 import { AssetLocationWidget } from '@/components/widgets/asset-location-widget'
 import { DepartmentOverviewWidget } from '@/components/widgets/department-overview-widget'
 import { AssetStatusPieWidget } from '@/components/widgets/asset-status-pie-widget'
@@ -18,17 +17,63 @@ import { AssetValueChartWidget } from '@/components/widgets/asset-value-chart-wi
 // Widget component mapping
 const widgetComponents = {
   'asset-stats': AssetStatsWidget,
-  'recent-assets': RecentAssetsWidget,
+  'recent-added-assets': RecentAddedAssetsWidget,
   'maintenance-alerts': MaintenanceAlertsWidget,
-  'quick-actions': QuickActionsWidget,
   'asset-location': AssetLocationWidget,
   'department-overview': DepartmentOverviewWidget,
   'asset-status-pie': AssetStatusPieWidget,
   'asset-value-chart': AssetValueChartWidget,
 }
 
+// Local storage key for dashboard widgets
+const DASHBOARD_WIDGETS_KEY = 'dashboard-widgets'
+
+// Helper functions for localStorage
+const saveWidgetsToStorage = (widgets: Widget[]) => {
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem(DASHBOARD_WIDGETS_KEY, JSON.stringify(widgets))
+    } catch (error) {
+      console.error('Failed to save widgets to localStorage:', error)
+    }
+  }
+}
+
+const loadWidgetsFromStorage = (): Widget[] => {
+  if (typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(DASHBOARD_WIDGETS_KEY)
+      if (stored) {
+        const parsedWidgets = JSON.parse(stored)
+        // Validate that the parsed data is an array of widgets
+        if (Array.isArray(parsedWidgets) && parsedWidgets.length > 0) {
+          return parsedWidgets
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load widgets from localStorage:', error)
+    }
+  }
+  return defaultWidgets
+}
+
 export function useDashboard() {
   const [widgets, setWidgets] = useState<Widget[]>(defaultWidgets)
+  const [isLoaded, setIsLoaded] = useState(false)
+
+  // Load widgets from localStorage on mount
+  useEffect(() => {
+    const storedWidgets = loadWidgetsFromStorage()
+    setWidgets(storedWidgets)
+    setIsLoaded(true)
+  }, [])
+
+  // Save widgets to localStorage whenever widgets change
+  useEffect(() => {
+    if (isLoaded) {
+      saveWidgetsToStorage(widgets)
+    }
+  }, [widgets, isLoaded])
 
   const addWidget = useCallback((type: WidgetType) => {
     const config = widgetConfigs[type]
@@ -60,6 +105,10 @@ export function useDashboard() {
     })
   }, [])
 
+  const resetToDefault = useCallback(() => {
+    setWidgets(defaultWidgets)
+  }, [])
+
   const getWidgetComponent = useCallback((type: WidgetType) => {
     return widgetComponents[type]
   }, [])
@@ -71,10 +120,12 @@ export function useDashboard() {
 
   return {
     widgets,
+    isLoaded,
     addWidget,
     removeWidget,
     updateWidget,
     reorderWidgets,
+    resetToDefault,
     getWidgetComponent,
     getAvailableWidgets,
     widgetConfigs

@@ -1,11 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
+import { DataManager, Asset } from "@/lib/lists-data"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -24,25 +26,23 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { CalendarIcon, ArrowLeft, UserCheck, Plus, X, Package } from "lucide-react"
+import { CalendarIcon, ArrowLeft, UserCheck, Plus, X, Package, DollarSign, CheckCircle } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 
-// Mock available assets data
-const mockAvailableAssets = [
-  { id: "AST-001", name: "MacBook Pro 16\"", category: "IT Equipment", location: "IT Storage Room", value: 2500 },
-  { id: "AST-002", name: "Dell Monitor 27\"", category: "IT Equipment", location: "IT Storage Room", value: 300 },
-  { id: "AST-003", name: "Office Chair", category: "Furniture", location: "Storage Room", value: 200 },
-  { id: "AST-004", name: "Toyota Camry", category: "Vehicle", location: "Parking Garage", value: 28000 },
-  { id: "AST-005", name: "Projector", category: "IT Equipment", location: "Conference Room", value: 800 },
-]
+// Get available assets from DataManager
+const getAvailableAssets = () => {
+  const dataManager = DataManager.getInstance()
+  return dataManager.getAssets().filter(asset => asset.status === "Available")
+}
 
 // Mock persons data
 const mockPersons = {
@@ -56,13 +56,18 @@ const mockPersons = {
 const checkoutSchema = z.object({
   assignedTo: z.string().min(1, "Please select who to assign to"),
   checkoutDate: z.date({
-    required_error: "Checkout date is required",
+    message: "Checkout date is required",
   }),
-  expectedReturnDate: z.date({
-    required_error: "Expected return date is required",
+  dueDate: z.date({
+    message: "Due date is required",
   }),
-  checkoutReason: z.string().min(1, "Please provide a reason for checkout"),
-  notes: z.string().optional(),
+  checkoutType: z.enum(["person", "site"]),
+  site: z.string().optional(),
+  location: z.string().optional(),
+  department: z.string().optional(),
+  checkoutNotes: z.string().optional(),
+  sendEmail: z.boolean(),
+  emailAddress: z.string().optional(),
 })
 
 type CheckoutFormValues = z.infer<typeof checkoutSchema>
@@ -70,18 +75,31 @@ type CheckoutFormValues = z.infer<typeof checkoutSchema>
 export default function CheckoutPage() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedAssets, setSelectedAssets] = useState<typeof mockAvailableAssets>([])
+  const [availableAssets, setAvailableAssets] = useState<Asset[]>([])
+  const [selectedAssets, setSelectedAssets] = useState<Asset[]>([])
   const [assetIdInput, setAssetIdInput] = useState("")
   const [assignToInput, setAssignToInput] = useState("")
   const [showAssignToSuggestions, setShowAssignToSuggestions] = useState(false)
-  const [filteredPersons, setFilteredPersons] = useState<typeof mockPersons>({})
+  const [filteredPersons, setFilteredPersons] = useState<Record<string, { name: string; email: string; department: string }>>({})
+  const [showSelectAssets, setShowSelectAssets] = useState(false)
+
+  // Load available assets on component mount
+  React.useEffect(() => {
+    const assets = getAvailableAssets()
+    setAvailableAssets(assets)
+  }, [])
 
   const form = useForm<CheckoutFormValues>({
     resolver: zodResolver(checkoutSchema),
     defaultValues: {
       assignedTo: "",
-      checkoutReason: "",
-      notes: "",
+      checkoutType: "person",
+      site: "",
+      location: "",
+      department: "",
+      checkoutNotes: "",
+      sendEmail: false,
+      emailAddress: "",
     },
   })
 
@@ -113,7 +131,7 @@ export default function CheckoutPage() {
   const addAssetById = () => {
     if (!assetIdInput.trim()) return
 
-    const asset = mockAvailableAssets.find(a => a.id.toLowerCase() === assetIdInput.toLowerCase())
+    const asset = availableAssets.find(a => a.id.toLowerCase() === assetIdInput.toLowerCase())
     if (!asset) {
       toast.error("Asset not found", {
         description: `No available asset found with ID: ${assetIdInput}`,
@@ -135,6 +153,17 @@ export default function CheckoutPage() {
     })
   }
 
+  const toggleAssetSelection = (asset: Asset) => {
+    setSelectedAssets(prev => {
+      const isSelected = prev.find(a => a.id === asset.id)
+      if (isSelected) {
+        return prev.filter(a => a.id !== asset.id)
+      } else {
+        return [...prev, asset]
+      }
+    })
+  }
+
   const removeAsset = (assetId: string) => {
     setSelectedAssets(prev => prev.filter(asset => asset.id !== assetId))
   }
@@ -150,24 +179,43 @@ export default function CheckoutPage() {
     setIsSubmitting(true)
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      const dataManager = DataManager.getInstance()
+      let successCount = 0
+      let failedCount = 0
       
-      console.log("Checkout data:", { ...data, assets: selectedAssets })
+      // Update each selected asset
+      for (const asset of selectedAssets) {
+        const updated = dataManager.updateAsset(asset.id, {
+          status: "In Use",
+          assignedTo: data.assignedTo,
+          location: data.location || asset.location,
+          department: data.department || asset.department,
+          notes: data.checkoutNotes
+        })
+        
+        if (updated) {
+          successCount++
+        } else {
+          failedCount++
+        }
+      }
       
-      // Show success toast notification
-      toast.success("Assets checked out successfully!", {
-        description: `${selectedAssets.length} asset(s) have been assigned to ${data.assignedTo}.`,
-        duration: 4000,
-      })
-      
-      // Redirect back to assets list
-      router.push("/assets")
+      if (successCount > 0) {
+        toast.success("Assets checked out successfully!", {
+          description: `${successCount} asset(s) assigned to ${data.assignedTo}.${failedCount > 0 ? ` ${failedCount} asset(s) could not be updated.` : ''}`,
+        })
+        
+        // Redirect back to assets list
+        router.push("/assets")
+      } else {
+        toast.error("Failed to check out assets", {
+          description: "No assets could be updated. They may be read-only imported assets.",
+        })
+      }
     } catch (error) {
       console.error("Error checking out assets:", error)
       toast.error("Failed to checkout assets", {
         description: "Please try again or contact support if the issue persists.",
-        duration: 4000,
       })
     } finally {
       setIsSubmitting(false)
@@ -209,26 +257,103 @@ export default function CheckoutPage() {
         
         <Separator className="mt-0 mb-1" />
 
-        <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
-          {/* Page Header */}
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Button
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.back()}
-                  className="h-8 w-8 p-0"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <h1 className="text-3xl font-bold">Check Out Asset</h1>
+        {/* Color-coded header bar for Check Out */}
+        <div className="h-2 bg-gradient-to-r from-blue-500 to-blue-600"></div>
+
+          <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
+            {/* Page Header */}
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => router.back()}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-1 bg-blue-500 rounded-full"></div>
+                    <h1 className="text-3xl font-bold tracking-tight">Check Out Asset</h1>
+                  </div>
+                </div>
+                <p className="text-muted-foreground ml-6">
+                  Assign an available asset to an employee, customer, or department
+                </p>
               </div>
-              <p className="text-muted-foreground">
-                Assign an available asset to an employee, customer, or department
-              </p>
             </div>
-          </div>
+
+            {/* Check Out Overview */}
+            <div className="grid gap-4 md:grid-cols-4">
+              <Card className="group hover:shadow-lg hover:shadow-blue-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+                <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 mr-3 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 group-hover:scale-110 transition-all duration-300">
+                    <Package className="h-5 w-5 text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-sm font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">Total Checked Out</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300">156</div>
+                  <p className="text-xs text-muted-foreground group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-300">
+                    Assets currently checked out
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="group hover:shadow-lg hover:shadow-green-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+                <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900 mr-3 group-hover:bg-green-200 dark:group-hover:bg-green-800 group-hover:scale-110 transition-all duration-300">
+                    <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-sm font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors duration-300">Available</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300">89</div>
+                  <p className="text-xs text-muted-foreground group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors duration-300">
+                    Assets ready for checkout
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="group hover:shadow-lg hover:shadow-orange-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+                <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900 mr-3 group-hover:bg-orange-200 dark:group-hover:bg-orange-800 group-hover:scale-110 transition-all duration-300">
+                    <UserCheck className="h-5 w-5 text-orange-600 dark:text-orange-400 group-hover:text-orange-700 dark:group-hover:text-orange-300 transition-colors duration-300" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-sm font-medium group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors duration-300">This Month</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-600 dark:text-orange-400 group-hover:text-orange-700 dark:group-hover:text-orange-300 transition-colors duration-300">23</div>
+                  <p className="text-xs text-muted-foreground group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors duration-300">
+                    Checkouts this month
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="group hover:shadow-lg hover:shadow-purple-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+                <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                  <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900 mr-3 group-hover:bg-purple-200 dark:group-hover:bg-purple-800 group-hover:scale-110 transition-all duration-300">
+                    <DollarSign className="h-5 w-5 text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-sm font-medium group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors duration-300">Total Value</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300">₱2.4M</div>
+                  <p className="text-xs text-muted-foreground group-hover:text-purple-500 dark:group-hover:text-purple-400 transition-colors duration-300">
+                    Value of checked out assets
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
 
       <Card>
         <CardHeader>
@@ -288,27 +413,29 @@ export default function CheckoutPage() {
                           <Package className="h-4 w-4" />
                           <span className="font-medium">Selected Assets ({selectedAssets.length})</span>
                         </div>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {selectedAssets.map((asset) => (
-                            <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                              <div className="flex-1">
-                                <div className="font-medium">{asset.name}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  {asset.id} • {asset.category} • ${asset.value.toLocaleString()}
+                        <ScrollArea className="max-h-40">
+                          <div className="space-y-2 pr-4">
+                            {selectedAssets.map((asset) => (
+                              <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                                <div className="flex-1">
+                                  <div className="font-medium">{asset.name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {asset.id} • {asset.category} • ₱{asset.value.toLocaleString()}
+                                  </div>
                                 </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeAsset(asset.id)}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
                               </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeAsset(asset.id)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
                       </div>
                     )}
                   </div>
@@ -327,56 +454,107 @@ export default function CheckoutPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="space-y-2">
-                    <FormLabel>Assign To</FormLabel>
-                    <FormDescription>
-                      Search for an employee, customer, or department by name, email, or department
-                    </FormDescription>
-                    <div className="relative">
-                      <Input
-                        placeholder="Search by name, email, or department..."
-                        value={assignToInput}
-                        onChange={(e) => handleAssignToSearch(e.target.value)}
-                        onFocus={() => {
-                          if (assignToInput.length > 0) {
-                            setShowAssignToSuggestions(true)
-                          }
-                        }}
-                        onBlur={() => {
-                          // Delay hiding suggestions to allow clicking on them
-                          setTimeout(() => setShowAssignToSuggestions(false), 200)
-                        }}
-                      />
-                      
-                      {/* Suggestions Dropdown */}
-                      {showAssignToSuggestions && Object.keys(filteredPersons).length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto">
-                          {Object.entries(filteredPersons).map(([name, person]) => (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => selectPerson(name)}
-                              className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
-                            >
-                              <div className="font-medium">{person.name}</div>
-                              <div className="text-sm text-muted-foreground">
-                                {person.department} • {person.email}
-                              </div>
-                            </button>
-                          ))}
-                        </div>
+                  <div className="space-y-6">
+                    {/* Check-out to Radio Buttons */}
+                    <FormField
+                      control={form.control}
+                      name="checkoutType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Check-out to</FormLabel>
+                          <div className="flex gap-6">
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="radio"
+                                id="person"
+                                value="person"
+                                checked={field.value === "person"}
+                                onChange={() => field.onChange("person")}
+                                className="text-yellow-500"
+                              />
+                              <label htmlFor="person" className="text-sm font-medium">Person</label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <input
+                                type="radio"
+                                id="site"
+                                value="site"
+                                checked={field.value === "site"}
+                                onChange={() => field.onChange("site")}
+                                className="text-yellow-500"
+                              />
+                              <label htmlFor="site" className="text-sm font-medium">Site / Location</label>
+                            </div>
+                          </div>
+                          <FormMessage />
+                        </FormItem>
                       )}
-                      
-                      {/* No results message */}
-                      {showAssignToSuggestions && Object.keys(filteredPersons).length === 0 && assignToInput.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-4 text-center text-muted-foreground">
-                          No results found for "{assignToInput}"
-                        </div>
+                    />
+
+                    {/* Assign to */}
+                    <FormField
+                      control={form.control}
+                      name="assignedTo"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Assign to *</FormLabel>
+                          <div className="flex gap-2">
+                            <div className="relative flex-1">
+                              <Input
+                                placeholder="Search by name, email, or department..."
+                                value={assignToInput}
+                                onChange={(e) => handleAssignToSearch(e.target.value)}
+                                onFocus={() => {
+                                  if (assignToInput.length > 0) {
+                                    setShowAssignToSuggestions(true)
+                                  }
+                                }}
+                                onBlur={() => {
+                                  setTimeout(() => setShowAssignToSuggestions(false), 200)
+                                }}
+                              />
+                              
+                              {/* Suggestions Dropdown */}
+                              {showAssignToSuggestions && Object.keys(filteredPersons).length > 0 && (
+                                <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg">
+                                  <ScrollArea className="max-h-60">
+                                    <div className="p-1">
+                                      {Object.entries(filteredPersons).map(([name, person]) => (
+                                        <button
+                                          key={name}
+                                          type="button"
+                                          onClick={() => selectPerson(name)}
+                                          className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+                                        >
+                                          <div className="font-medium">{person.name}</div>
+                                          <div className="text-sm text-muted-foreground">
+                                            {person.department} • {person.email}
+                                          </div>
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </ScrollArea>
+                                </div>
+                              )}
+                              
+                              {/* No results message */}
+                              {showAssignToSuggestions && Object.keys(filteredPersons).length === 0 && assignToInput.length > 0 && (
+                                <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-4 text-center text-muted-foreground">
+                                  No results found for &quot;{assignToInput}&quot;
+                                </div>
+                              )}
+                            </div>
+                            <Button type="button" variant="outline" size="sm">
+                              <Plus className="h-4 w-4 mr-1" />
+                              New
+                            </Button>
+                          </div>
+                          {form.formState.errors.assignedTo && (
+                            <p className="text-sm text-destructive">{form.formState.errors.assignedTo.message}</p>
+                          )}
+                        </FormItem>
                       )}
-                    </div>
-                    {form.formState.errors.assignedTo && (
-                      <p className="text-sm text-destructive">{form.formState.errors.assignedTo.message}</p>
-                    )}
+                    />
                   </div>
                 </CardContent>
               </Card>
@@ -393,14 +571,14 @@ export default function CheckoutPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-6 md:grid-cols-2">
                     {/* Checkout Date */}
                     <FormField
                       control={form.control}
                       name="checkoutDate"
                       render={({ field }) => (
                         <FormItem className="flex flex-col">
-                          <FormLabel>Checkout Date</FormLabel>
+                          <FormLabel>Check-out Date</FormLabel>
                           <Popover>
                             <PopoverTrigger asChild>
                               <FormControl>
@@ -412,9 +590,9 @@ export default function CheckoutPage() {
                                   )}
                                 >
                                   {field.value ? (
-                                    format(field.value, "PPP")
+                                    format(field.value, "dd/MM/yyyy")
                                   ) : (
-                                    <span>Pick a date</span>
+                                    <span>01/10/2025</span>
                                   )}
                                   <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                 </Button>
@@ -440,13 +618,13 @@ export default function CheckoutPage() {
                       )}
                     />
 
-                    {/* Expected Return Date */}
+                    {/* Due Date */}
                     <FormField
                       control={form.control}
-                      name="expectedReturnDate"
+                      name="dueDate"
                       render={({ field }) => (
                         <FormItem className="flex flex-col">
-                          <FormLabel>Expected Return Date</FormLabel>
+                          <FormLabel>Due Date</FormLabel>
                           <Popover>
                             <PopoverTrigger asChild>
                               <FormControl>
@@ -458,9 +636,9 @@ export default function CheckoutPage() {
                                   )}
                                 >
                                   {field.value ? (
-                                    format(field.value, "PPP")
+                                    format(field.value, "dd/MM/yyyy")
                                   ) : (
-                                    <span>Pick a date</span>
+                                    <span>dd/MM/yyyy</span>
                                   )}
                                   <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                 </Button>
@@ -497,57 +675,150 @@ export default function CheckoutPage() {
                     Additional Information
                   </CardTitle>
                   <CardDescription>
-                    Provide reason and any additional notes
+                    Optionally change site, location and department of assets
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="space-y-4">
-                    {/* Checkout Reason */}
-                    <FormField
-                      control={form.control}
-                      name="checkoutReason"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Reason for Checkout</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="e.g., Project work, Temporary assignment, Training purposes"
-                              className="resize-none"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Explain why this asset is being checked out
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                  <div className="space-y-6">
+                    <div className="grid gap-6 md:grid-cols-2">
+                      {/* Site */}
+                      <FormField
+                        control={form.control}
+                        name="site"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Site</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Site" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="HAULER">HAULER</SelectItem>
+                                <SelectItem value="MAIN OFFICE">MAIN OFFICE</SelectItem>
+                                <SelectItem value="WAREHOUSE">WAREHOUSE</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
-                    {/* Notes */}
-                    <FormField
-                      control={form.control}
-                      name="notes"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Additional Notes (Optional)</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Any additional information or special instructions"
-                              className="resize-none"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Any extra details about this checkout
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
+                      {/* Location */}
+                      <FormField
+                        control={form.control}
+                        name="location"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Location</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Location" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="HAULER">HAULER</SelectItem>
+                                <SelectItem value="OFFICE FLOOR 1">OFFICE FLOOR 1</SelectItem>
+                                <SelectItem value="OFFICE FLOOR 2">OFFICE FLOOR 2</SelectItem>
+                                <SelectItem value="WAREHOUSE A">WAREHOUSE A</SelectItem>
+                                <SelectItem value="WAREHOUSE B">WAREHOUSE B</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Department */}
+                      <FormField
+                        control={form.control}
+                        name="department"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Department</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select Department" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="IT Department">IT Department</SelectItem>
+                                <SelectItem value="Human Resources">Human Resources</SelectItem>
+                                <SelectItem value="Finance">Finance</SelectItem>
+                                <SelectItem value="Marketing">Marketing</SelectItem>
+                                <SelectItem value="Operations">Operations</SelectItem>
+                                <SelectItem value="Security">Security</SelectItem>
+                                <SelectItem value="Facilities">Facilities</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Email Address */}
+                      <FormField
+                        control={form.control}
+                        name="emailAddress"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Email Address</FormLabel>
+                            <FormControl>
+                              <Input
+                                placeholder="Enter Email Address"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                      {/* Check-out Notes */}
+                      <FormField
+                        control={form.control}
+                        name="checkoutNotes"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Check-out Notes</FormLabel>
+                            <FormControl>
+                              <Textarea
+                                placeholder="Enter notes about this checkout..."
+                                className="resize-none"
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Send Email */}
+                      <FormField
+                        control={form.control}
+                        name="sendEmail"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center space-x-2">
+                            <FormControl>
+                              <input
+                                type="checkbox"
+                                checked={field.value}
+                                onChange={field.onChange}
+                                className="rounded"
+                              />
+                            </FormControl>
+                            <FormLabel className="text-sm font-normal">Send Email</FormLabel>
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                 </CardContent>
               </Card>
+
 
               {/* Submit Button */}
               <div className="flex gap-4 pt-4">
