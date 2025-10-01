@@ -131,11 +131,62 @@
     cursor: grabbing;
   }
   
-  .sortable-item {
-    transition: transform 200ms ease;
+  .drag-handle:hover {
+    background-color: hsl(var(--muted) / 0.4);
   }
   
-  .sortable-item:hover {
-    transform: translateY(-2px);
+  .sortable-item {
+    will-change: transform;
+    transform: translateZ(0);
+  }
+  
+  .sortable-item:hover:not([data-dragging="true"]) {
+    transform: translateY(-0.5px) translateZ(0);
+  }
+  
+  .sortable-item[data-dragging="true"] {
+    transform: scale(1.05) rotate(1deg) translateZ(0) !important;
+    box-shadow: 0 15px 30px -5px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    transition: none !important;
+  }
+  
+  /* Drop zone styling - minimal */
+  .sortable-item[data-drop-target="true"]:not([data-dragging="true"]) {
+    animation: dropZoneGlow 1s ease-in-out infinite;
+  }
+  
+  @keyframes dropZoneGlow {
+    0%, 100% {
+      box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.25);
+    }
+  }
+  
+  /* Prevent layout shift during drag */
+  .sortable-item[data-sortable-id] {
+    contain: layout style;
+  }
+  
+  /* Optimize animations for better performance */
+  .sortable-item * {
+    transform: translateZ(0);
+  }
+  
+  /* Prevent shaking during drag */
+  .sortable-item[data-dragging="true"] * {
+    transition: none !important;
+    animation: none !important;
+  }
+  
+  /* Disable all transitions during drag */
+  .sortable-item[data-dragging="true"],
+  .sortable-item[data-dragging="true"] *,
+  .sortable-item[data-dragging="true"] *::before,
+  .sortable-item[data-dragging="true"] *::after {
+    transition: none !important;
+    animation: none !important;
   }
 }

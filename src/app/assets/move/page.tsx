@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
+import { getAllAssets } from "@/lib/centralized-assets"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -24,25 +25,20 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { CalendarIcon, ArrowLeft, Move, Plus, X, Package } from "lucide-react"
+import { CalendarIcon, ArrowLeft, Move, Plus, X, Package, CheckCircle, ChevronDown } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 
-// Mock assets data (all assets for moving)
-const mockAssets = [
-  { id: "AST-001", name: "MacBook Pro 16\"", category: "IT Equipment", currentLocation: "IT Storage Room", status: "Available" },
-  { id: "AST-002", name: "Dell Monitor 27\"", category: "IT Equipment", currentLocation: "IT Storage Room", status: "Available" },
-  { id: "AST-003", name: "Office Chair", category: "Furniture", currentLocation: "Storage Room", status: "Available" },
-  { id: "AST-004", name: "Toyota Camry", category: "Vehicle", currentLocation: "Parking Garage", status: "In Use" },
-  { id: "AST-005", name: "Projector", category: "IT Equipment", currentLocation: "Conference Room", status: "Available" },
-]
+// Use centralized asset data
+const mockAssets = getAllAssets()
 
 // Mock locations with sites and departments
 const mockLocations = [
@@ -139,6 +135,22 @@ export default function MoveAssetPage() {
   const [departmentInput, setDepartmentInput] = useState("")
   const [showDepartmentSuggestions, setShowDepartmentSuggestions] = useState(false)
   const [filteredDepartments, setFilteredDepartments] = useState<string[]>([])
+  const [selectedDepartment, setSelectedDepartment] = useState("All Departments")
+
+  // Mock asset counts by department
+  const assetCountsByDepartment = {
+    "All Departments": 156,
+    "IT Department": 45,
+    "HR Department": 32,
+    "Finance Department": 28,
+    "Marketing Department": 15,
+    "Operations Department": 12,
+    "Sales Department": 8,
+    "Legal Department": 6,
+    "Engineering Department": 4,
+    "Customer Service": 3,
+    "Administration": 3
+  }
 
   const form = useForm<MoveFormValues>({
     resolver: zodResolver(moveSchema),
@@ -322,6 +334,9 @@ export default function MoveAssetPage() {
         
         <Separator className="mt-0 mb-1" />
 
+        {/* Color-coded header bar for Move Asset */}
+        <div className="h-2 bg-gradient-to-r from-orange-500 to-orange-600"></div>
+
         <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
           {/* Page Header */}
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -335,12 +350,71 @@ export default function MoveAssetPage() {
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
-                <h1 className="text-3xl font-bold">Move Asset</h1>
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-1 bg-orange-500 rounded-full"></div>
+                  <h1 className="text-3xl font-bold tracking-tight">Move Asset</h1>
+                </div>
               </div>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground ml-6">
                 Transfer assets between sites, departments, or locations within the company
               </p>
             </div>
+          </div>
+
+          {/* Move Asset Overview */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="group hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.02] transition-all duration-200 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 mr-3 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 transition-colors duration-200">
+                  <Package className="h-5 w-5 text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-200" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">Assets by Department</CardTitle>
+                </div>
+                <div className="ml-2">
+                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                    <SelectTrigger className="h-8 text-xs min-w-[120px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(assetCountsByDepartment).map((department) => (
+                        <SelectItem key={department} value={department} className="text-xs">
+                          {department}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-200">
+                  {assetCountsByDepartment[selectedDepartment as keyof typeof assetCountsByDepartment]}
+                </div>
+                <p className="text-xs text-muted-foreground group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-200">
+                  {selectedDepartment === "All Departments" 
+                    ? "Total assets across all departments" 
+                    : `Assets in ${selectedDepartment}`
+                  }
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="group hover:shadow-lg hover:shadow-green-500/20 hover:scale-[1.02] transition-all duration-200 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900 mr-3 group-hover:bg-green-200 dark:group-hover:bg-green-800 transition-colors duration-200">
+                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-200" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors duration-200">Transferred Today</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-200">5</div>
+                <p className="text-xs text-muted-foreground group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors duration-200">
+                  Assets moved between locations
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
           {/* Asset Move Form */}
@@ -402,27 +476,29 @@ export default function MoveAssetPage() {
                           <Package className="h-4 w-4" />
                           <span className="font-medium">Selected Assets ({selectedAssets.length})</span>
                         </div>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {selectedAssets.map((asset) => (
-                            <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                              <div className="flex-1">
-                                <div className="font-medium">{asset.name}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  {asset.id} • Current: {asset.currentLocation} • Status: {asset.status}
+                        <ScrollArea className="max-h-40">
+                          <div className="space-y-2 pr-4">
+                            {selectedAssets.map((asset) => (
+                              <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                                <div className="flex-1">
+                                  <div className="font-medium">{asset.name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {asset.id} • Current: {asset.currentLocation} • Status: {asset.status}
+                                  </div>
                                 </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeAsset(asset.id)}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
                               </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeAsset(asset.id)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
                       </div>
                     )}
                   </div>
@@ -468,7 +544,7 @@ export default function MoveAssetPage() {
                             </SelectContent>
                           </Select>
                           <FormDescription>
-                            Choose whether you're moving to a new location, assigning to a person, or transferring between departments
+                            Choose whether you&apos;re moving to a new location, assigning to a person, or transferring between departments
                           </FormDescription>
                           <FormMessage />
                         </FormItem>
@@ -499,24 +575,28 @@ export default function MoveAssetPage() {
                           
                           {/* Location Suggestions Dropdown */}
                           {showLocationSuggestions && filteredLocations.length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              {filteredLocations.map((location) => (
-                                <button
-                                  key={location}
-                                  type="button"
-                                  onClick={() => selectLocation(location)}
-                                  className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
-                                >
-                                  <div className="font-medium">{location}</div>
-                                </button>
-                              ))}
+                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg">
+                              <ScrollArea className="max-h-60">
+                                <div className="p-1">
+                                  {filteredLocations.map((location) => (
+                                    <button
+                                      key={location}
+                                      type="button"
+                                      onClick={() => selectLocation(location)}
+                                      className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+                                    >
+                                      <div className="font-medium">{location}</div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </ScrollArea>
                             </div>
                           )}
                           
                           {/* No results message */}
                           {showLocationSuggestions && filteredLocations.length === 0 && locationInput.length > 0 && (
                             <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-4 text-center text-muted-foreground">
-                              No locations found for "{locationInput}"
+                              No locations found for &quot;{locationInput}&quot;
                             </div>
                           )}
                         </div>
@@ -550,27 +630,31 @@ export default function MoveAssetPage() {
                           
                           {/* Person Suggestions Dropdown */}
                           {showPersonSuggestions && Object.keys(filteredPersons).length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              {Object.entries(filteredPersons).map(([name, person]) => (
-                                <button
-                                  key={name}
-                                  type="button"
-                                  onClick={() => selectPerson(name)}
-                                  className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
-                                >
-                                  <div className="font-medium">{person.name}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {person.department} • {person.email}
-                                  </div>
-                                </button>
-                              ))}
+                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg">
+                              <ScrollArea className="max-h-60">
+                                <div className="p-1">
+                                  {Object.entries(filteredPersons).map(([name, person]) => (
+                                    <button
+                                      key={name}
+                                      type="button"
+                                      onClick={() => selectPerson(name)}
+                                      className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+                                    >
+                                      <div className="font-medium">{person.name}</div>
+                                      <div className="text-sm text-muted-foreground">
+                                        {person.department} • {person.email}
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </ScrollArea>
                             </div>
                           )}
                           
                           {/* No results message */}
                           {showPersonSuggestions && Object.keys(filteredPersons).length === 0 && personInput.length > 0 && (
                             <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-4 text-center text-muted-foreground">
-                              No persons found for "{personInput}"
+                              No persons found for &quot;{personInput}&quot;
                             </div>
                           )}
                         </div>
@@ -604,24 +688,28 @@ export default function MoveAssetPage() {
                           
                           {/* Department Suggestions Dropdown */}
                           {showDepartmentSuggestions && filteredDepartments.length > 0 && (
-                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto">
-                              {filteredDepartments.map((department) => (
-                                <button
-                                  key={department}
-                                  type="button"
-                                  onClick={() => selectDepartment(department)}
-                                  className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
-                                >
-                                  <div className="font-medium">{department}</div>
-                                </button>
-                              ))}
+                            <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg">
+                              <ScrollArea className="max-h-60">
+                                <div className="p-1">
+                                  {filteredDepartments.map((department) => (
+                                    <button
+                                      key={department}
+                                      type="button"
+                                      onClick={() => selectDepartment(department)}
+                                      className="w-full px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b last:border-b-0"
+                                    >
+                                      <div className="font-medium">{department}</div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </ScrollArea>
                             </div>
                           )}
                           
                           {/* No results message */}
                           {showDepartmentSuggestions && filteredDepartments.length === 0 && departmentInput.length > 0 && (
                             <div className="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg p-4 text-center text-muted-foreground">
-                              No departments found for "{departmentInput}"
+                              No departments found for &quot;{departmentInput}&quot;
                             </div>
                           )}
                         </div>

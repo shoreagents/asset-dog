@@ -25,12 +25,37 @@ import {
   ArrowLeftRight,
   Trash2,
   Wrench,
+  ShieldCheck,
+  List,
+  ClipboardList,
+  Building2,
+  MapPin,
+  FolderOpen,
+  Building,
+  Database,
+  Activity,
+  Table,
+  Archive,
+  Cog,
+  LayoutDashboard,
+  FileEdit,
+  Mail,
+  Folder,
+  MapPin as MapPinIcon,
+  ArrowRight,
+  Layers,
+  Grid3X3,
+  CheckSquare,
+  Grid,
+  Box,
+  Settings,
+  Layout,
+  PenTool,
 } from "lucide-react"
 
 import { NavMain } from "@/components/nav-main"
 import { NavProjects } from "@/components/nav-projects"
 import { NavUser } from "@/components/nav-user"
-import { TeamSwitcher } from "@/components/team-switcher"
 import {
   Sidebar,
   SidebarContent,
@@ -46,23 +71,10 @@ const data = {
     email: "admin@assetdog.com",
     avatar: "/avatars/user.jpg",
   },
-  teams: [
-    {
-      name: "Asset Dog",
-      logo: GalleryVerticalEnd,
-      plan: "Enterprise",
-    },
-    {
-      name: "IT Department",
-      logo: AudioWaveform,
-      plan: "Professional",
-    },
-    {
-      name: "Operations",
-      logo: Command,
-      plan: "Standard",
-    },
-  ],
+  company: {
+    name: "Asset Dog",
+    plan: "Enterprise",
+  },
   navMain: [
     {
       title: "Dashboard",
@@ -137,6 +149,28 @@ const data = {
           title: "Maintenance",
           url: "/assets/maintenance",
           icon: Wrench,
+        },
+      ],
+    },
+    {
+      title: "Lists",
+      url: "/lists",
+      icon: List,
+      items: [
+        {
+          title: "List of Assets",
+          url: "/lists/assets",
+          icon: Package,
+        },
+        {
+          title: "List of Maintenances",
+          url: "/lists/maintenances",
+          icon: Wrench,
+        },
+        {
+          title: "List of Warranties",
+          url: "/lists/warranties",
+          icon: ShieldCheck,
         },
       ],
     },
@@ -245,6 +279,154 @@ const data = {
         },
       ],
     },
+    {
+      title: "Setup",
+      url: "/setup",
+      icon: Cog,
+      items: [
+        {
+          title: "Company Info.",
+          url: "/setup/company-info",
+          icon: Folder,
+        },
+        {
+          title: "Sites",
+          url: "/setup/sites",
+          icon: MapPinIcon,
+        },
+        {
+          title: "Locations",
+          url: "/setup/locations",
+          icon: ArrowRight,
+        },
+        {
+          title: "Categories",
+          url: "/setup/categories",
+          icon: Layers,
+        },
+        {
+          title: "Departments",
+          url: "/setup/departments",
+          icon: Layers,
+        },
+        {
+          title: "Databases",
+          url: "/setup/databases",
+          icon: Database,
+          items: [
+            {
+              title: "Assets Table",
+              url: "/setup/databases/assets-table",
+              icon: Layers,
+            },
+            {
+              title: "Persons/Employees",
+              url: "/setup/databases/persons-employees",
+              icon: Users,
+            },
+            {
+              title: "Customers Table",
+              url: "/setup/databases/customers-table",
+              icon: UserCheck,
+            },
+            {
+              title: "Maintenance Table",
+              url: "/setup/databases/maintenance-table",
+              icon: Wrench,
+            },
+            {
+              title: "Warranties Table",
+              url: "/setup/databases/warranties-table",
+              icon: Shield,
+            },
+            {
+              title: "Contract Table",
+              url: "/setup/databases/contract-table",
+              icon: FileText,
+            },
+          ],
+        },
+        {
+          title: "Events",
+          url: "/setup/events",
+          icon: CheckSquare,
+        },
+        {
+          title: "Table Options",
+          url: "/setup/table-options",
+          icon: Grid,
+        },
+        {
+          title: "Inventory",
+          url: "/setup/inventory",
+          icon: Box,
+        },
+        {
+          title: "Options",
+          url: "/setup/options",
+          icon: Layers,
+        },
+        {
+          title: "Manage Dashboard",
+          url: "/setup/manage-dashboard",
+          icon: Layout,
+        },
+        {
+          title: "Customize Forms",
+          url: "/setup/customize-forms",
+          icon: PenTool,
+          items: [
+            {
+              title: "Form Builder",
+              url: "/setup/customize-forms/builder",
+              icon: PenTool,
+            },
+            {
+              title: "Form Templates",
+              url: "/setup/customize-forms/templates",
+              icon: FileText,
+            },
+          ],
+        },
+        {
+          title: "Customize Emails",
+          url: "/setup/customize-emails",
+          icon: Mail,
+        },
+      ],
+    },
+    {
+      title: "Tools",
+      url: "/tools",
+      icon: Wrench,
+      items: [
+        {
+          title: "Import",
+          url: "/tools/import",
+          icon: Plus,
+        },
+        {
+          title: "Export",
+          url: "/tools/export",
+          icon: FileText,
+        },
+        {
+          title: "Documents Gallery",
+          url: "/tools/documents",
+          icon: FileText,
+        },
+        {
+          title: "Image Gallery",
+          url: "/tools/images",
+          icon: GalleryVerticalEnd,
+        },
+        {
+          title: "Audit",
+          url: "/tools/audit",
+          icon: ShieldCheck,
+        },
+      ],
+    },
   ],
   projects: [
     {
@@ -269,7 +451,22 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+        <div className="flex items-center gap-2 px-2 py-2">
+          {/* Company Logo Placeholder */}
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <GalleryVerticalEnd className="h-4 w-4 text-primary-foreground" />
+          </div>
+          
+          {/* Company Name */}
+          <div className="flex flex-col">
+            <span className="text-sm font-semibold text-sidebar-foreground">
+              {data.company.name}
+            </span>
+            <span className="text-xs text-sidebar-foreground/70">
+              {data.company.plan}
+            </span>
+          </div>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={data.navMain} />

@@ -2,6 +2,7 @@
 
 import { ChevronRight, type LucideIcon } from "lucide-react"
 import { usePathname } from "next/navigation"
+import { useMemo } from "react"
 
 import {
   Collapsible,
@@ -35,20 +36,30 @@ export function NavMain({
 }) {
   const pathname = usePathname()
   
+  // Memoize the items with their open state to prevent infinite re-renders
+  const itemsWithOpenState = useMemo(() => {
+    return items.map((item) => {
+      // Check if current path matches any sub-item URL
+      const isSubItemActive = item.items?.some(subItem => pathname === subItem.url)
+      const shouldBeOpen = item.isActive || isSubItemActive
+      
+      return {
+        ...item,
+        shouldBeOpen
+      }
+    })
+  }, [items, pathname])
+  
   return (
     <SidebarGroup>
       <SidebarGroupLabel>Platform</SidebarGroupLabel>
       <SidebarMenu>
-        {items.map((item) => {
-          // Check if current path matches any sub-item URL
-          const isSubItemActive = item.items?.some(subItem => pathname === subItem.url)
-          const shouldBeOpen = item.isActive || isSubItemActive
-          
+        {itemsWithOpenState.map((item) => {
           return (
             <Collapsible
               key={item.title}
               asChild
-              defaultOpen={shouldBeOpen}
+              defaultOpen={item.shouldBeOpen}
               className="group/collapsible"
             >
               <SidebarMenuItem>

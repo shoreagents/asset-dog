@@ -1,42 +1,66 @@
 import { WidgetType, WidgetSize, Widget } from '@/types/widgets';
+import { getAllAssets } from './centralized-assets';
 
-// Mock data for widgets
-export const mockAssetStats = {
-  totalAssets: 1247,
-  activeAssets: 1156,
-  maintenanceDue: 23,
-  totalValue: 2847500
-};
+// Real data for widgets - calculated from centralized assets
+export const mockAssetStats = (() => {
+  const assets = getAllAssets();
+  return {
+    totalAssets: assets.length,
+    activeAssets: assets.filter(asset => asset.status === 'In Use').length,
+    maintenanceDue: assets.filter(asset => asset.status === 'Maintenance').length,
+    totalValue: assets.reduce((sum, asset) => sum + asset.value, 0)
+  };
+})();
 
-export const mockRecentAssets = [
-  { id: 'AST-001', name: 'MacBook Pro 16"', category: 'IT Equipment', status: 'In Use', assignedTo: 'John Smith' },
-  { id: 'AST-002', name: 'Dell Monitor 27"', category: 'IT Equipment', status: 'Available', assignedTo: 'Unassigned' },
-  { id: 'AST-003', name: 'Office Chair', category: 'Furniture', status: 'In Use', assignedTo: 'Sarah Johnson' },
-  { id: 'AST-004', name: 'Projector', category: 'IT Equipment', status: 'Maintenance', assignedTo: 'IT Department' },
-  { id: 'AST-005', name: 'Toyota Camry', category: 'Vehicle', status: 'In Use', assignedTo: 'Mike Wilson' }
-];
+export const mockRecentAssets = getAllAssets().slice(0, 5).map(asset => ({
+  id: asset.id,
+  name: asset.name,
+  category: asset.category,
+  status: asset.status,
+  assignedTo: asset.assignedTo || 'Unassigned'
+}));
 
-export const mockAssetLocations = [
-  { location: 'Main Office', count: 456 },
-  { location: 'Branch Office - Downtown', count: 234 },
-  { location: 'Branch Office - Suburbs', count: 189 },
-  { location: 'Central Warehouse', count: 178 },
-  { location: 'Remote Sites', count: 190 }
-];
+export const mockAssetLocations = (() => {
+  const assets = getAllAssets();
+  const locationCounts = assets.reduce((acc, asset) => {
+    acc[asset.location] = (acc[asset.location] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+  
+  return Object.entries(locationCounts)
+    .map(([location, count]) => ({ location, count }))
+    .sort((a, b) => b.count - a.count);
+})();
 
-export const mockMaintenanceAlerts = [
-  { id: 'MA-001', asset: 'AST-001', type: 'Preventive', dueDate: '2024-01-15', priority: 'High' },
-  { id: 'MA-002', asset: 'AST-004', type: 'Repair', dueDate: '2024-01-12', priority: 'Medium' },
-  { id: 'MA-003', asset: 'AST-005', type: 'Inspection', dueDate: '2024-01-20', priority: 'Low' }
-];
+export const mockMaintenanceAlerts = (() => {
+  const assets = getAllAssets();
+  const maintenanceAssets = assets.filter(asset => asset.status === 'Maintenance');
+  
+  return maintenanceAssets.map((asset, index) => ({
+    id: `MA-${(index + 1).toString().padStart(3, '0')}`,
+    asset: asset.name,
+    type: 'Repair' as const,
+    dueDate: asset.lastMaintenance || new Date().toISOString().split('T')[0],
+    priority: 'High' as const
+  }));
+})();
 
-export const mockDepartments = [
-  { name: 'IT Department', assetCount: 234, value: 1250000 },
-  { name: 'Sales Department', assetCount: 89, value: 450000 },
-  { name: 'Marketing Department', assetCount: 67, value: 320000 },
-  { name: 'Operations Department', assetCount: 156, value: 780000 },
-  { name: 'HR Department', assetCount: 45, value: 200000 }
-];
+export const mockDepartments = (() => {
+  const assets = getAllAssets();
+  const departmentData = assets.reduce((acc, asset) => {
+    const deptName = `${asset.department} Department`;
+    if (!acc[deptName]) {
+      acc[deptName] = { assetCount: 0, value: 0 };
+    }
+    acc[deptName].assetCount += 1;
+    acc[deptName].value += asset.value;
+    return acc;
+  }, {} as Record<string, { assetCount: number; value: number }>);
+  
+  return Object.entries(departmentData)
+    .map(([name, data]) => ({ name, ...data }))
+    .sort((a, b) => b.assetCount - a.assetCount);
+})();
 
 // Default widget configurations
 export const widgetConfigs = {
@@ -47,10 +71,10 @@ export const widgetConfigs = {
     icon: '📊',
     defaultSize: 'large' as WidgetSize
   },
-  'recent-assets': {
-    type: 'recent-assets' as WidgetType,
-    title: 'Recent Assets',
-    description: 'List of recently added or modified assets',
+  'recent-added-assets': {
+    type: 'recent-added-assets' as WidgetType,
+    title: 'Recent Added Assets',
+    description: 'Recently added assets with check in/out functionality',
     icon: '📦',
     defaultSize: 'medium' as WidgetSize
   },
@@ -67,13 +91,6 @@ export const widgetConfigs = {
     description: 'Upcoming maintenance schedules and alerts',
     icon: '⚠️',
     defaultSize: 'medium' as WidgetSize
-  },
-  'quick-actions': {
-    type: 'quick-actions' as WidgetType,
-    title: 'Quick Actions',
-    description: 'Quick access to common asset management tasks',
-    icon: '⚡',
-    defaultSize: 'small' as WidgetSize
   },
   'asset-value-chart': {
     type: 'asset-value-chart' as WidgetType,
@@ -104,21 +121,28 @@ export const defaultWidgets: Widget[] = [
     id: 'widget-1',
     type: 'asset-stats',
     title: 'Asset Statistics',
-    size: 'large',
+    size: 'small',
     position: { x: 0, y: 0 }
   },
   {
     id: 'widget-2',
-    type: 'recent-assets',
-    title: 'Recent Assets',
+    type: 'asset-value-chart',
+    title: 'Asset Value Chart',
+    size: 'medium',
+    position: { x: 1, y: 0 }
+  },
+  {
+    id: 'widget-3',
+    type: 'department-overview',
+    title: 'Department Overview',
     size: 'medium',
     position: { x: 0, y: 1 }
   },
   {
-    id: 'widget-3',
-    type: 'quick-actions',
-    title: 'Quick Actions',
+    id: 'widget-4',
+    type: 'recent-added-assets',
+    title: 'Recent Added Assets',
     size: 'small',
-    position: { x: 1, y: 1 }
+    position: { x: 2, y: 1 }
   }
 ];

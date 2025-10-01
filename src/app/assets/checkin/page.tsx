@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
+import { getAllAssets } from "@/lib/centralized-assets"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -24,13 +25,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import {
   SidebarInset,
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { CalendarIcon, ArrowLeft, UserMinus, Plus, X, Package } from "lucide-react"
+import { CalendarIcon, ArrowLeft, UserMinus, Plus, X, Package, CheckCircle, DollarSign, RotateCcw } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
@@ -48,42 +50,21 @@ const mockLocations = [
   "Break Room",
   "Server Room"
 ]
-const mockCheckedOutAssets = [
-  { 
-    id: "AST-001", 
-    name: "MacBook Pro 16\"", 
-    category: "IT Equipment", 
-    assignedTo: "John Smith",
-    checkoutDate: "2024-01-15",
-    expectedReturnDate: "2024-02-15",
-    location: "John's Office",
-    value: 2500 
-  },
-  { 
-    id: "AST-002", 
-    name: "Dell Monitor 27\"", 
-    category: "IT Equipment", 
-    assignedTo: "Sarah Johnson",
-    checkoutDate: "2024-01-20",
-    expectedReturnDate: "2024-02-20",
-    location: "Sarah's Desk",
-    value: 300 
-  },
-  { 
-    id: "AST-003", 
-    name: "Office Chair", 
-    category: "Furniture", 
-    assignedTo: "Mike Wilson",
-    checkoutDate: "2024-01-10",
-    expectedReturnDate: "2024-02-10",
-    location: "Mike's Office",
-    value: 200 
-  },
-]
+// Use centralized asset data - filter for checked out assets
+const mockCheckedOutAssets = getAllAssets().filter(asset => asset.status === "In Use").map(asset => ({
+  id: asset.id,
+  name: asset.name,
+  category: asset.category,
+  assignedTo: asset.assignedTo || "Unknown",
+  checkoutDate: "2024-01-15",
+  expectedReturnDate: "2024-02-15",
+  location: asset.location,
+  value: asset.value
+}))
 
 const checkinSchema = z.object({
   checkinDate: z.date({
-    required_error: "Check-in date is required",
+    message: "Check-in date is required",
   }),
   condition: z.string().min(1, "Please select the asset condition"),
   location: z.string().min(1, "Please specify the return location"),
@@ -214,6 +195,9 @@ export default function CheckinPage() {
         
         <Separator className="mt-0 mb-1" />
 
+        {/* Color-coded header bar for Check In */}
+        <div className="h-2 bg-gradient-to-r from-green-500 to-green-600"></div>
+
         <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
           {/* Page Header */}
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -227,12 +211,69 @@ export default function CheckinPage() {
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
-                <h1 className="text-3xl font-bold">Check In Asset</h1>
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-1 bg-green-500 rounded-full"></div>
+                  <h1 className="text-3xl font-bold tracking-tight">Check In Asset</h1>
+                </div>
               </div>
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground ml-6">
                 Return a checked out asset back to inventory
               </p>
             </div>
+          </div>
+
+          {/* Check In Overview */}
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card className="group hover:shadow-lg hover:shadow-blue-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 mr-3 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 group-hover:scale-110 transition-all duration-300">
+                  <Package className="h-5 w-5 text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">Available in Storage</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300">89</div>
+                <p className="text-xs text-muted-foreground group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-300">
+                  Assets ready in inventory
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="group hover:shadow-lg hover:shadow-green-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900 mr-3 group-hover:bg-green-200 dark:group-hover:bg-green-800 group-hover:scale-110 transition-all duration-300">
+                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors duration-300">Returned Today</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300">8</div>
+                <p className="text-xs text-muted-foreground group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors duration-300">
+                  Assets added to inventory today
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="group hover:shadow-lg hover:shadow-purple-500/20 hover:scale-105 transition-all duration-300 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-purple-100 dark:bg-purple-900 mr-3 group-hover:bg-purple-200 dark:group-hover:bg-purple-800 group-hover:scale-110 transition-all duration-300">
+                  <DollarSign className="h-5 w-5 text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-purple-600 dark:group-hover:text-purple-400 transition-colors duration-300">Inventory Value</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300">$3.2M</div>
+                <p className="text-xs text-muted-foreground group-hover:text-purple-500 dark:group-hover:text-purple-400 transition-colors duration-300">
+                  Total value in storage
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
       <Card>
@@ -293,27 +334,29 @@ export default function CheckinPage() {
                           <Package className="h-4 w-4" />
                           <span className="font-medium">Selected Assets ({selectedAssets.length})</span>
                         </div>
-                        <div className="space-y-2 max-h-40 overflow-y-auto">
-                          {selectedAssets.map((asset) => (
-                            <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                              <div className="flex-1">
-                                <div className="font-medium">{asset.name}</div>
-                                <div className="text-sm text-muted-foreground">
-                                  {asset.id} • Assigned to: {asset.assignedTo} • Expected return: {asset.expectedReturnDate}
+                        <ScrollArea className="max-h-40">
+                          <div className="space-y-2 pr-4">
+                            {selectedAssets.map((asset) => (
+                              <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
+                                <div className="flex-1">
+                                  <div className="font-medium">{asset.name}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    {asset.id} • Assigned to: {asset.assignedTo} • Expected return: {asset.expectedReturnDate}
+                                  </div>
                                 </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeAsset(asset.id)}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
                               </div>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeAsset(asset.id)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        </ScrollArea>
                       </div>
                     )}
                   </div>

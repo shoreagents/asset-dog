@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter, useParams } from "next/navigation"
+import { getAssetById, getAllAssets } from "@/lib/centralized-assets"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -156,7 +157,7 @@ export default function CheckInAssetPage() {
           <div className="flex flex-1 flex-col items-center justify-center p-4">
             <AlertTriangle className="h-16 w-16 text-destructive mb-4" />
             <h1 className="text-2xl font-bold mb-2">Asset Not Found</h1>
-            <p className="text-muted-foreground mb-4">The asset you're looking for doesn't exist.</p>
+            <p className="text-muted-foreground mb-4">The asset you&apos;re looking for doesn&apos;t exist.</p>
             <Button onClick={() => router.push("/assets")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Assets
@@ -176,7 +177,7 @@ export default function CheckInAssetPage() {
             <AlertTriangle className="h-16 w-16 text-yellow-500 mb-4" />
             <h1 className="text-2xl font-bold mb-2">Asset Not Checked Out</h1>
             <p className="text-muted-foreground mb-4">
-              This asset is currently {asset.status.toLowerCase()} and doesn't need to be checked in.
+              This asset is currently {asset.status.toLowerCase()} and doesn&apos;t need to be checked in.
             </p>
             <Button onClick={() => router.push("/assets")}>
               <ArrowLeft className="mr-2 h-4 w-4" />
@@ -276,7 +277,7 @@ export default function CheckInAssetPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Value:</span>
-                    <span>${asset.value.toLocaleString()}</span>
+                    <span>₱{asset.value.toLocaleString()}</span>
                   </div>
                   {asset.serialNumber && (
                     <div className="flex justify-between">
