@@ -1,9 +1,29 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
+import { useMaintenance } from "@/hooks/use-maintenance"
+import { AppSidebar } from "@/components/app-sidebar"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Separator } from "@/components/ui/separator"
+import {
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar"
 import {
   Table,
   TableBody,
@@ -19,350 +39,354 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Badge } from "@/components/ui/badge"
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar"
-import { AppSidebar } from "@/components/app-sidebar"
-import { Wrench, Search, Filter, Download, Eye, Edit, ArrowLeft, Trash2, CheckCircle, Clock, AlertTriangle } from "lucide-react"
+import { 
+  ArrowLeft, 
+  Wrench, 
+  Search, 
+  Filter, 
+  Calendar,
+  DollarSign,
+  User,
+  Package,
+  CheckCircle,
+  Clock,
+  AlertTriangle,
+  X
+} from "lucide-react"
+import { format } from "date-fns"
 import Link from "next/link"
-import { DataManager } from "@/lib/lists-data"
-import { Maintenance, Asset } from "@/lib/lists-data"
-import { MaintenanceFormDialog } from "@/components/lists/maintenance-form-dialog"
-import { DeleteConfirmDialog } from "@/components/lists/delete-confirm-dialog"
 
 export default function MaintenancesListPage() {
-  const [maintenances, setMaintenances] = useState<Maintenance[]>([])
-  const [assets, setAssets] = useState<Asset[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
+  const { maintenanceRecords, isLoading, error, loadMaintenanceRecords, updateMaintenanceRecord, deleteMaintenanceRecord } = useMaintenance()
   const [searchTerm, setSearchTerm] = useState("")
-  const [statusFilter, setStatusFilter] = useState("all")
-  const [typeFilter, setTypeFilter] = useState("all")
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editingMaintenance, setEditingMaintenance] = useState<Maintenance | undefined>()
-  const [deleteMaintenance, setDeleteMaintenance] = useState<Maintenance | undefined>()
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [isUpdating, setIsUpdating] = useState<string | null>(null)
 
-  const dataManager = DataManager.getInstance()
-
-  const loadMaintenances = async () => {
-    try {
-      setIsLoading(true)
-      const maintenancesData = dataManager.getMaintenances()
-      const assetsData = dataManager.getAssets()
-      setMaintenances(maintenancesData)
-      setAssets(assetsData)
-    } catch (error) {
-      console.error("Failed to load maintenances:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    loadMaintenances()
-  }, [])
-
-  const handleAddMaintenance = async (data: Omit<Maintenance, "id">) => {
-    try {
-      dataManager.addMaintenance(data)
-      await loadMaintenances()
-    } catch (error) {
-      console.error("Failed to add maintenance:", error)
-    }
-  }
-
-  const handleUpdateMaintenance = async (data: Omit<Maintenance, "id">) => {
-    if (!editingMaintenance) return
+  // Filter maintenance records
+  const filteredRecords = maintenanceRecords.filter(record => {
+    const matchesSearch = 
+      record.maintenance_title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.maintenance_by.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.assets?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      record.assets?.asset_tag_id.toLowerCase().includes(searchTerm.toLowerCase())
     
-    try {
-      dataManager.updateMaintenance(editingMaintenance.id, data)
-      await loadMaintenances()
-    } catch (error) {
-      console.error("Failed to update maintenance:", error)
-    }
-  }
-
-  const handleDeleteMaintenance = async () => {
-    if (!deleteMaintenance) return
+    const matchesStatus = statusFilter === "all" || record.status === statusFilter
     
-    try {
-      dataManager.deleteMaintenance(deleteMaintenance.id)
-      await loadMaintenances()
-    } catch (error) {
-      console.error("Failed to delete maintenance:", error)
-    }
-  }
-
-  const handleExport = () => {
-    dataManager.exportToCSV(maintenances, "maintenances")
-  }
-
-  const filteredMaintenances = maintenances.filter((maintenance) => {
-    const matchesSearch = maintenance.assetName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         maintenance.technician.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         maintenance.description.toLowerCase().includes(searchTerm.toLowerCase())
-    
-    const matchesStatus = statusFilter === "all" || maintenance.status === statusFilter
-    const matchesType = typeFilter === "all" || maintenance.type === typeFilter
-    
-    return matchesSearch && matchesStatus && matchesType
+    return matchesSearch && matchesStatus
   })
 
-  const getStatusColor = (status: string) => {
+  const handleStatusUpdate = async (recordId: string, newStatus: string) => {
+    setIsUpdating(recordId)
+    try {
+      const result = await updateMaintenanceRecord(recordId, { 
+        status: newStatus as any,
+        date_completed: newStatus === "completed" ? new Date().toISOString() : undefined
+      })
+      
+      if (result.success) {
+        toast.success("Maintenance status updated successfully")
+      } else {
+        toast.error("Failed to update maintenance status")
+      }
+    } catch (error) {
+      console.error("Error updating maintenance status:", error)
+      toast.error("Failed to update maintenance status")
+    } finally {
+      setIsUpdating(null)
+    }
+  }
+
+  const handleDeleteRecord = async (recordId: string) => {
+    if (!confirm("Are you sure you want to delete this maintenance record?")) {
+      return
+    }
+
+    try {
+      await deleteMaintenanceRecord(recordId)
+      toast.success("Maintenance record deleted successfully")
+    } catch (error) {
+      console.error("Error deleting maintenance record:", error)
+      toast.error("Failed to delete maintenance record")
+    }
+  }
+
+  const getStatusIcon = (status: string) => {
     switch (status) {
-      case "Completed":
-        return "bg-green-100 text-green-800"
-      case "In Progress":
-        return "bg-blue-100 text-blue-800"
-      case "Scheduled":
-        return "bg-yellow-100 text-yellow-800"
-      case "Overdue":
-        return "bg-red-100 text-red-800"
+      case "scheduled":
+        return <Clock className="h-4 w-4 text-blue-500" />
+      case "in_progress":
+        return <Wrench className="h-4 w-4 text-orange-500" />
+      case "completed":
+        return <CheckCircle className="h-4 w-4 text-green-500" />
+      case "cancelled":
+        return <X className="h-4 w-4 text-red-500" />
       default:
-        return "bg-gray-100 text-gray-800"
+        return <AlertTriangle className="h-4 w-4 text-gray-500" />
     }
   }
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "High":
-        return "bg-red-100 text-red-800"
-      case "Medium":
-        return "bg-yellow-100 text-yellow-800"
-      case "Low":
-        return "bg-green-100 text-green-800"
+  const getStatusBadgeVariant = (status: string) => {
+    switch (status) {
+      case "scheduled":
+        return "secondary"
+      case "in_progress":
+        return "default"
+      case "completed":
+        return "default"
+      case "cancelled":
+        return "destructive"
       default:
-        return "bg-gray-100 text-gray-800"
+        return "outline"
     }
-  }
-
-  const summaryStats = {
-    total: maintenances.length,
-    completed: maintenances.filter(m => m.status === "Completed").length,
-    inProgress: maintenances.filter(m => m.status === "In Progress").length,
-    overdue: maintenances.filter(m => m.status === "Overdue").length,
   }
 
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[collapsible=icon]]/sidebar-wrapper:h-12">
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
-            <div className="flex items-center gap-2">
-              <Wrench className="h-5 w-5" />
-              <h1 className="text-lg font-semibold">List of Maintenances</h1>
-            </div>
+            <Separator
+              orientation="vertical"
+              className="mr-2 data-[orientation=vertical]:h-4"
+            />
+            <Breadcrumb>
+              <BreadcrumbList>
+                <BreadcrumbItem className="hidden md:block">
+                  <BreadcrumbLink href="/dashboard">
+                    Asset Dog
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="hidden md:block" />
+                <BreadcrumbItem>
+                  <BreadcrumbLink href="/lists">
+                    Lists
+                  </BreadcrumbLink>
+                </BreadcrumbItem>
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  <BreadcrumbPage>Maintenances</BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
           </div>
         </header>
+        
+        <Separator className="mt-0 mb-1" />
 
-        <div className="flex flex-1 flex-col gap-4 p-4 pt-0">
-          {/* Back Button */}
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/lists">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Lists
-              </Link>
-            </Button>
+        {/* Color-coded header bar for Maintenances */}
+        <div className="h-2 bg-gradient-to-r from-yellow-500 to-yellow-600"></div>
+
+        <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
+          {/* Page Header */}
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => router.back()}
+                  className="h-8 w-8 p-0"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-1 bg-yellow-500 rounded-full"></div>
+                  <h1 className="text-3xl font-bold tracking-tight">Maintenance Records</h1>
+                </div>
+              </div>
+              <p className="text-muted-foreground ml-6">
+                View and manage all maintenance records for assets
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button asChild>
+                <Link href="/assets/maintenance">
+                  <Wrench className="h-4 w-4 mr-2" />
+                  Schedule Maintenance
+                </Link>
+              </Button>
+            </div>
           </div>
 
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card className="group hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.02] transition-all duration-300 ease-in-out cursor-pointer">
-              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 mr-3 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 group-hover:scale-110 transition-all duration-300">
-                  <Wrench className="h-5 w-5 text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-sm font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">Total</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300">{summaryStats.total}</div>
-                <p className="text-xs text-muted-foreground group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-300">
-                  Maintenance records
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="group hover:shadow-lg hover:shadow-green-500/20 hover:scale-[1.02] transition-all duration-300 ease-in-out cursor-pointer">
-              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-green-100 dark:bg-green-900 mr-3 group-hover:bg-green-200 dark:group-hover:bg-green-800 group-hover:scale-110 transition-all duration-300">
-                  <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-sm font-medium group-hover:text-green-600 dark:group-hover:text-green-400 transition-colors duration-300">Completed</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-300">{summaryStats.completed}</div>
-                <p className="text-xs text-muted-foreground group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors duration-300">
-                  Finished tasks
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="group hover:shadow-lg hover:shadow-blue-500/20 hover:scale-[1.02] transition-all duration-300 ease-in-out cursor-pointer">
-              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-blue-100 dark:bg-blue-900 mr-3 group-hover:bg-blue-200 dark:group-hover:bg-blue-800 group-hover:scale-110 transition-all duration-300">
-                  <Clock className="h-5 w-5 text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-sm font-medium group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">In Progress</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors duration-300">{summaryStats.inProgress}</div>
-                <p className="text-xs text-muted-foreground group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors duration-300">
-                  Active work
-                </p>
-              </CardContent>
-            </Card>
-            <Card className="group hover:shadow-lg hover:shadow-red-500/20 hover:scale-[1.02] transition-all duration-300 ease-in-out cursor-pointer">
-              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
-                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900 mr-3 group-hover:bg-red-200 dark:group-hover:bg-red-800 group-hover:scale-110 transition-all duration-300">
-                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 group-hover:text-red-700 dark:group-hover:text-red-300 transition-colors duration-300" />
-                </div>
-                <div className="flex-1">
-                  <CardTitle className="text-sm font-medium group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors duration-300">Overdue</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600 dark:text-red-400 group-hover:text-red-700 dark:group-hover:text-red-300 transition-colors duration-300">{summaryStats.overdue}</div>
-                <p className="text-xs text-muted-foreground group-hover:text-red-500 dark:group-hover:text-red-400 transition-colors duration-300">
-                  Needs attention
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Filters and Actions */}
+          {/* Filters */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Filter className="h-5 w-5" />
-                Filters & Actions
+                Filters
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="flex-1">
                   <div className="relative">
-                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Search maintenances..."
+                      placeholder="Search by title, provider, or asset..."
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-8"
+                      className="pl-10"
                     />
                   </div>
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue placeholder="Filter by status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="Scheduled">Scheduled</SelectItem>
-                    <SelectItem value="In Progress">In Progress</SelectItem>
-                    <SelectItem value="Completed">Completed</SelectItem>
-                    <SelectItem value="Overdue">Overdue</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger className="w-full sm:w-[180px]">
-                    <SelectValue placeholder="Filter by type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="Preventive">Preventive</SelectItem>
-                    <SelectItem value="Repair">Repair</SelectItem>
-                    <SelectItem value="Emergency">Emergency</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button onClick={handleExport} variant="outline">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export
-                </Button>
-                <Button onClick={() => setIsFormOpen(true)}>
-                  <Wrench className="h-4 w-4 mr-2" />
-                  Schedule Maintenance
-                </Button>
+                <div className="w-full sm:w-48">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="scheduled">Scheduled</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="cancelled">Cancelled</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Maintenances Table */}
+          {/* Maintenance Records Table */}
           <Card>
             <CardHeader>
-              <CardTitle>Maintenance Records</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Maintenance Records ({filteredRecords.length})
+              </CardTitle>
               <CardDescription>
-                Complete record of maintenance activities for tracking service history
+                All maintenance records for assets
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-                <div className="rounded-md border min-w-[1000px]">
+              {isLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                    <p className="text-muted-foreground">Loading maintenance records...</p>
+                  </div>
+                </div>
+              ) : error ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <div className="text-red-500 mb-4">⚠️</div>
+                    <p className="text-red-600 font-medium">Failed to load maintenance records</p>
+                    <p className="text-muted-foreground text-sm mt-2">{error}</p>
+                  </div>
+                </div>
+              ) : filteredRecords.length === 0 ? (
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-center">
+                    <Wrench className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground font-medium">No maintenance records found</p>
+                    <p className="text-muted-foreground text-sm mt-2">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "Try adjusting your filters" 
+                        : "Schedule maintenance for assets to see records here"
+                      }
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <ScrollArea className="h-[600px]">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[120px]">ID</TableHead>
-                        <TableHead className="w-[200px]">Asset</TableHead>
-                        <TableHead className="w-[120px]">Type</TableHead>
-                        <TableHead className="w-[120px]">Status</TableHead>
-                        <TableHead className="w-[120px]">Priority</TableHead>
-                        <TableHead className="w-[150px]">Scheduled Date</TableHead>
-                        <TableHead className="w-[150px]">Technician</TableHead>
-                        <TableHead className="w-[120px]">Cost</TableHead>
-                        <TableHead className="w-[100px]">Actions</TableHead>
+                        <TableHead>Asset</TableHead>
+                        <TableHead>Maintenance Title</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Due Date</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Cost</TableHead>
+                        <TableHead>Repeating</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredMaintenances.map((maintenance) => (
-                        <TableRow key={maintenance.id}>
-                          <TableCell className="font-medium">{maintenance.id}</TableCell>
+                      {filteredRecords.map((record) => (
+                        <TableRow key={record.id}>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{maintenance.assetName}</div>
-                              <div className="text-sm text-muted-foreground">{maintenance.assetId}</div>
+                              <div className="font-medium">{record.assets?.asset_tag_id || record.asset_id}</div>
+                              <div className="text-sm text-muted-foreground">
+                                {record.assets?.name || 'Unknown Asset'}
+                              </div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{maintenance.type}</Badge>
+                            <div>
+                              <div className="font-medium">{record.maintenance_title}</div>
+                              {record.maintenance_details && (
+                                <div className="text-sm text-muted-foreground">
+                                  {record.maintenance_details.substring(0, 50)}
+                                  {record.maintenance_details.length > 50 && '...'}
+                                </div>
+                              )}
+                            </div>
                           </TableCell>
-                          <TableCell>
-                            <Badge className={getStatusColor(maintenance.status)}>
-                              {maintenance.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={getPriorityColor(maintenance.priority || "Medium")}>
-                              {maintenance.priority || "Medium"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>{new Date(maintenance.scheduledDate).toLocaleDateString()}</TableCell>
-                          <TableCell>{maintenance.technician}</TableCell>
-                          <TableCell>${maintenance.cost.toFixed(2)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                              {record.maintenance_by}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-muted-foreground" />
+                              {format(new Date(record.maintenance_due_date), "MMM dd, yyyy")}
+                            </div>
+                            {record.date_completed && (
+                              <div className="text-sm text-green-600">
+                                Completed: {format(new Date(record.date_completed), "MMM dd, yyyy")}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(record.status)}
+                              <Badge variant={getStatusBadgeVariant(record.status) as any}>
+                                {record.status.replace('_', ' ').toUpperCase()}
+                              </Badge>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <DollarSign className="h-4 w-4 text-muted-foreground" />
+                              ₱{record.maintenance_cost.toLocaleString()}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={record.is_repeating ? "default" : "outline"}>
+                              {record.is_repeating ? "Yes" : "No"}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <Select
+                                value={record.status}
+                                onValueChange={(value) => handleStatusUpdate(record.id, value)}
+                                disabled={isUpdating === record.id}
+                              >
+                                <SelectTrigger className="w-32">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="scheduled">Scheduled</SelectItem>
+                                  <SelectItem value="in_progress">In Progress</SelectItem>
+                                  <SelectItem value="completed">Completed</SelectItem>
+                                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => {
-                                  setEditingMaintenance(maintenance)
-                                  setIsFormOpen(true)
-                                }}
+                                onClick={() => handleDeleteRecord(record.id)}
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                               >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteMaintenance(maintenance)}
-                              >
-                                <Trash2 className="h-4 w-4" />
+                                <X className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>
@@ -370,36 +394,11 @@ export default function MaintenancesListPage() {
                       ))}
                     </TableBody>
                   </Table>
-                </div>
-              </div>
+                </ScrollArea>
+              )}
             </CardContent>
           </Card>
         </div>
-
-        {/* Form Dialog */}
-        <MaintenanceFormDialog
-          open={isFormOpen}
-          onOpenChange={(open) => {
-            setIsFormOpen(open)
-            if (!open) {
-              setEditingMaintenance(undefined)
-            }
-          }}
-          maintenance={editingMaintenance}
-          assets={assets}
-          onSubmit={editingMaintenance ? handleUpdateMaintenance : handleAddMaintenance}
-        />
-
-        {/* Delete Confirmation Dialog */}
-        <DeleteConfirmDialog
-          open={!!deleteMaintenance}
-          onOpenChange={(open) => {
-            if (!open) setDeleteMaintenance(undefined)
-          }}
-          onConfirm={handleDeleteMaintenance}
-          itemType="maintenance"
-          itemName={deleteMaintenance?.assetName}
-        />
       </SidebarInset>
     </SidebarProvider>
   )

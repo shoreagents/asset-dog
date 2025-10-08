@@ -6,7 +6,8 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
-import { getAllAssets } from "@/lib/centralized-assets"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
+import { useUpdateAsset } from "@/hooks/use-assets-query"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -36,77 +37,59 @@ import { CalendarIcon, ArrowLeft, Move, Plus, X, Package, CheckCircle, ChevronDo
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
+import { setupDataManager } from "@/lib/setup-data"
 
-// Use centralized asset data
-const mockAssets = getAllAssets()
-
-// Mock locations with sites and departments
-const mockLocations = [
-  // Main Office Locations
-  "Main Office - IT Department",
-  "Main Office - HR Department", 
-  "Main Office - Finance Department",
-  "Main Office - Marketing Department",
-  "Main Office - Sales Department",
-  "Main Office - Operations Department",
-  "Main Office - Reception Area",
-  "Main Office - Conference Room A",
-  "Main Office - Conference Room B",
-  "Main Office - Break Room",
-  "Main Office - Server Room",
-  "Main Office - Storage Room",
-  
-  // Branch Office Locations
-  "Branch Office - Downtown",
-  "Branch Office - Downtown - IT Department",
-  "Branch Office - Downtown - Sales Department",
-  "Branch Office - Downtown - Conference Room",
-  
-  "Branch Office - Suburbs",
-  "Branch Office - Suburbs - Operations Department",
-  "Branch Office - Suburbs - Warehouse",
-  
-  // Warehouse Locations
-  "Central Warehouse - Receiving",
-  "Central Warehouse - Storage Area A",
-  "Central Warehouse - Storage Area B",
-  "Central Warehouse - Shipping Dock",
-  
-  // Remote Sites
-  "Remote Site - Manufacturing Plant",
-  "Remote Site - Distribution Center",
-  "Remote Site - Research Lab",
-  
-  // Special Locations
-  "Parking Garage - Main Office",
-  "Parking Garage - Branch Downtown",
-  "Maintenance Room",
-  "Archive Room"
-]
-
-// Mock persons data for person transfers
-const mockPersons = {
-  "John Smith": { name: "John Smith", email: "john@company.com", department: "IT" },
-  "Sarah Johnson": { name: "Sarah Johnson", email: "sarah@company.com", department: "Marketing" },
-  "Mike Wilson": { name: "Mike Wilson", email: "mike@company.com", department: "Sales" },
-  "Lisa Brown": { name: "Lisa Brown", email: "lisa@company.com", department: "HR" },
-  "David Lee": { name: "David Lee", email: "david@company.com", department: "Finance" },
-  "Emma Davis": { name: "Emma Davis", email: "emma@company.com", department: "Operations" },
+// Get available assets from useAssets hook (exclude maintenance and disposed assets)
+const getAvailableAssets = (assets: any[]) => {
+  return assets.filter(asset => 
+    asset.status === "Available" || 
+    asset.status === "Check Out" || 
+    asset.status === "Reserve"
+  ).filter(asset => 
+    asset.status !== "Maintenance" && 
+    asset.status !== "Dispose"
+  )
 }
 
-// Mock departments
-const mockDepartments = [
-  "IT Department",
-  "HR Department", 
-  "Finance Department",
-  "Marketing Department",
-  "Sales Department",
-  "Operations Department",
-  "Legal Department",
-  "Customer Service",
-  "Research & Development",
-  "Quality Assurance"
-]
+// Get real data from setup manager
+const getLocations = () => {
+  const locations = setupDataManager.getLocations()
+  const sites = setupDataManager.getSites()
+  
+  // Convert to strings and combine locations and sites
+  const allLocations: string[] = [
+    ...locations.map(loc => loc.name),
+    ...sites.map(site => site.name)
+  ]
+  
+  // Add department-specific locations
+  const departments = setupDataManager.getDepartments()
+  departments.forEach(dept => {
+    allLocations.push(`Main Office - ${dept.name}`)
+    allLocations.push(`Branch Office - ${dept.name}`)
+  })
+  
+  return allLocations
+}
+
+const getPersons = () => {
+  const employees = setupDataManager.getEmployees()
+  const persons: Record<string, { name: string; email: string; department: string }> = {}
+  
+  employees.forEach(emp => {
+    persons[emp.name] = {
+      name: emp.name,
+      email: emp.email || `${emp.name.toLowerCase().replace(' ', '.')}@company.com`,
+      department: emp.department || 'General'
+    }
+  })
+  
+  return persons
+}
+
+const getDepartments = () => {
+  return setupDataManager.getDepartments().map(dept => dept.name)
+}
 
 const moveSchema = z.object({
   moveType: z.string().min(1, "Please select the type of move"),
@@ -122,8 +105,10 @@ type MoveFormValues = z.infer<typeof moveSchema>
 
 export default function MoveAssetPage() {
   const router = useRouter()
+  const { data: assets = [], isLoading, error } = useInstantAssets()
+  const updateAssetMutation = useUpdateAsset()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedAssets, setSelectedAssets] = useState<typeof mockAssets>([])
+  const [selectedAssets, setSelectedAssets] = useState<any[]>([])
   const [assetIdInput, setAssetIdInput] = useState("")
   const [moveType, setMoveType] = useState("")
   const [locationInput, setLocationInput] = useState("")
@@ -136,21 +121,31 @@ export default function MoveAssetPage() {
   const [showDepartmentSuggestions, setShowDepartmentSuggestions] = useState(false)
   const [filteredDepartments, setFilteredDepartments] = useState<string[]>([])
   const [selectedDepartment, setSelectedDepartment] = useState("All Departments")
+  const [showAssetSuggestions, setShowAssetSuggestions] = useState(false)
+  const [filteredAssets, setFilteredAssets] = useState<any[]>([])
 
-  // Mock asset counts by department
+  // Get real data
+  const locations = getLocations()
+  const persons = getPersons()
+  const departments = getDepartments()
+
+  // Get available assets from the loaded assets
+  const availableAssets = getAvailableAssets(assets)
+
+  // Calculate asset counts by department from real data
   const assetCountsByDepartment = {
-    "All Departments": 156,
-    "IT Department": 45,
-    "HR Department": 32,
-    "Finance Department": 28,
-    "Marketing Department": 15,
-    "Operations Department": 12,
-    "Sales Department": 8,
-    "Legal Department": 6,
-    "Engineering Department": 4,
-    "Customer Service": 3,
-    "Administration": 3
+    "All Departments": assets.length,
+    ...departments.reduce((acc, dept) => {
+      acc[dept] = assets.filter(a => a.department === dept).length
+      return acc
+    }, {} as Record<string, number>)
   }
+
+  // Calculate assets moved today (based on notes containing today's date)
+  const today = format(new Date(), "yyyy-MM-dd")
+  const assetsMovedToday = assets.filter(asset => 
+    asset.notes?.includes(`[MOVE ${today}]`)
+  ).length
 
   const form = useForm<MoveFormValues>({
     resolver: zodResolver(moveSchema),
@@ -170,7 +165,7 @@ export default function MoveAssetPage() {
     form.setValue("newLocation", value)
     
     if (value.length > 0) {
-      const filtered = mockLocations.filter(location =>
+      const filtered = locations.filter(location =>
         location.toLowerCase().includes(value.toLowerCase())
       )
       setFilteredLocations(filtered)
@@ -193,7 +188,7 @@ export default function MoveAssetPage() {
     form.setValue("assignedTo", value)
     
     if (value.length > 0) {
-      const filtered = Object.entries(mockPersons).filter(([name, person]) =>
+      const filtered = Object.entries(persons).filter(([name, person]) =>
         name.toLowerCase().includes(value.toLowerCase()) ||
         person.email.toLowerCase().includes(value.toLowerCase()) ||
         person.department.toLowerCase().includes(value.toLowerCase())
@@ -218,7 +213,7 @@ export default function MoveAssetPage() {
     form.setValue("departmentTransfer", value)
     
     if (value.length > 0) {
-      const filtered = mockDepartments.filter(department =>
+      const filtered = departments.filter(department =>
         department.toLowerCase().includes(value.toLowerCase())
       )
       setFilteredDepartments(filtered)
@@ -235,17 +230,24 @@ export default function MoveAssetPage() {
     setShowDepartmentSuggestions(false)
   }
 
-  const addAssetById = () => {
-    if (!assetIdInput.trim()) return
-
-    const asset = mockAssets.find(a => a.id.toLowerCase() === assetIdInput.toLowerCase())
-    if (!asset) {
-      toast.error("Asset not found", {
-        description: `No asset found with ID: ${assetIdInput}`,
-      })
-      return
+  // Handle asset ID input with autocomplete
+  const handleAssetIdInput = (value: string) => {
+    setAssetIdInput(value)
+    
+    if (value.length > 0) {
+      const filtered = availableAssets.filter(asset =>
+        asset.id.toLowerCase().includes(value.toLowerCase()) ||
+        (asset.name || '').toLowerCase().includes(value.toLowerCase())
+      )
+      setFilteredAssets(filtered)
+      setShowAssetSuggestions(true)
+    } else {
+      setFilteredAssets([])
+      setShowAssetSuggestions(false)
     }
+  }
 
+  const selectAsset = (asset: any) => {
     if (selectedAssets.find(a => a.id === asset.id)) {
       toast.error("Asset already added", {
         description: `Asset ${asset.id} is already in the list`,
@@ -255,9 +257,25 @@ export default function MoveAssetPage() {
 
     setSelectedAssets(prev => [...prev, asset])
     setAssetIdInput("")
+    setShowAssetSuggestions(false)
+    setFilteredAssets([])
     toast.success("Asset added", {
-      description: `${asset.name} has been added to the move list`,
+      description: `${asset.name || asset.id} has been added to the move list`,
     })
+  }
+
+  const addAssetById = () => {
+    if (!assetIdInput.trim()) return
+
+    const asset = availableAssets.find(a => a.id.toLowerCase() === assetIdInput.toLowerCase())
+    if (!asset) {
+      toast.error("Asset not found", {
+        description: `No available asset found with ID: ${assetIdInput}`,
+      })
+      return
+    }
+
+    selectAsset(asset)
   }
 
   const removeAsset = (assetId: string) => {
@@ -275,19 +293,58 @@ export default function MoveAssetPage() {
     setIsSubmitting(true)
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      let successCount = 0
+      let failedCount = 0
       
-      console.log("Move asset data:", { ...data, assets: selectedAssets })
+      // Update each selected asset based on move type
+      for (const asset of selectedAssets) {
+        try {
+          let updateData: any = {}
+          
+          // Prepare update data based on move type
+          if (data.moveType === "location") {
+            updateData = {
+              location: data.newLocation,
+              notes: `[MOVE ${format(data.moveDate, "yyyy-MM-dd")}] ${data.reason}${data.notes ? ` | Notes: ${data.notes}` : ''}`
+            }
+          } else if (data.moveType === "person") {
+            updateData = {
+              assignedTo: data.assignedTo,
+              status: "Check Out",
+              notes: `[MOVE ${format(data.moveDate, "yyyy-MM-dd")}] Assigned to ${data.assignedTo} | ${data.reason}${data.notes ? ` | Notes: ${data.notes}` : ''}`
+            }
+          } else if (data.moveType === "department") {
+            updateData = {
+              department: data.departmentTransfer,
+              notes: `[MOVE ${format(data.moveDate, "yyyy-MM-dd")}] Department transfer to ${data.departmentTransfer} | ${data.reason}${data.notes ? ` | Notes: ${data.notes}` : ''}`
+            }
+          }
+          
+          const result = await updateAssetMutation.mutateAsync({ id: asset.id, updates: updateData })
+          if (result.success) {
+            successCount++
+          } else {
+            failedCount++
+          }
+        } catch (error) {
+          console.error(`Failed to update asset ${asset.id}:`, error)
+          failedCount++
+        }
+      }
       
-      // Show success toast notification
-      toast.success("Assets moved successfully!", {
-        description: `${selectedAssets.length} asset(s) have been moved to ${data.newLocation}.`,
-        duration: 4000,
-      })
-      
-      // Redirect back to assets list
-      router.push("/assets")
+      if (successCount > 0) {
+        toast.success("Assets moved successfully!", {
+          description: `${successCount} asset(s) have been moved.${failedCount > 0 ? ` ${failedCount} asset(s) could not be updated.` : ''}`,
+          duration: 4000,
+        })
+        
+        // Redirect back to assets list
+        router.push("/assets")
+      } else {
+        toast.error("Failed to move assets", {
+          description: "No assets could be updated. Please try again.",
+        })
+      }
     } catch (error) {
       console.error("Error moving assets:", error)
       toast.error("Failed to move assets", {
@@ -338,28 +395,45 @@ export default function MoveAssetPage() {
         <div className="h-2 bg-gradient-to-r from-orange-500 to-orange-600"></div>
 
         <div className="flex flex-1 flex-col gap-4 p-4 pt-2">
-          {/* Page Header */}
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <Button
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => router.back()}
-                  className="h-8 w-8 p-0"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </Button>
-                <div className="flex items-center gap-3">
-                  <div className="h-8 w-1 bg-orange-500 rounded-full"></div>
-                  <h1 className="text-3xl font-bold tracking-tight">Move Asset</h1>
-                </div>
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading assets from database...</p>
               </div>
-              <p className="text-muted-foreground ml-6">
-                Transfer assets between sites, departments, or locations within the company
-              </p>
             </div>
-          </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="text-red-500 mb-4">⚠️</div>
+                <p className="text-red-600 font-medium">Failed to load assets</p>
+                <p className="text-muted-foreground text-sm mt-2">{error instanceof Error ? error.message : "Failed to load assets"}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+            {/* Page Header */}
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <Button
+                    variant="ghost" 
+                    size="sm"
+                    onClick={() => router.back()}
+                    className="h-8 w-8 p-0"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-1 bg-orange-500 rounded-full"></div>
+                    <h1 className="text-3xl font-bold tracking-tight">Move Asset</h1>
+                  </div>
+                </div>
+                <p className="text-muted-foreground ml-6">
+                  Transfer assets between sites, departments, or locations within the company
+                </p>
+              </div>
+            </div>
 
           {/* Move Asset Overview */}
           <div className="grid gap-4 md:grid-cols-2">
@@ -409,9 +483,9 @@ export default function MoveAssetPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-200">5</div>
+                <div className="text-2xl font-bold text-green-600 dark:text-green-400 group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-200">{assetsMovedToday}</div>
                 <p className="text-xs text-muted-foreground group-hover:text-green-500 dark:group-hover:text-green-400 transition-colors duration-200">
-                  Assets moved between locations
+                  Assets moved today
                 </p>
               </CardContent>
             </Card>
@@ -453,17 +527,57 @@ export default function MoveAssetPage() {
                     
                     {/* Asset ID Input */}
                     <div className="flex gap-2">
-                      <Input
-                        placeholder="Enter Asset ID (e.g., AST-001)"
-                        value={assetIdInput}
-                        onChange={(e) => setAssetIdInput(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            addAssetById()
-                          }
-                        }}
-                      />
+                      <div className="relative flex-1">
+                        <Input
+                          placeholder="Enter Asset ID (e.g., AST-001)"
+                          value={assetIdInput}
+                          onChange={(e) => handleAssetIdInput(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault()
+                              addAssetById()
+                            }
+                          }}
+                          onFocus={() => {
+                            if (assetIdInput.length > 0) {
+                              setShowAssetSuggestions(true)
+                            }
+                          }}
+                          onBlur={() => {
+                            setTimeout(() => setShowAssetSuggestions(false), 200)
+                          }}
+                        />
+                        
+                        {/* Asset Suggestions Dropdown */}
+                        {showAssetSuggestions && filteredAssets.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-lg shadow-lg">
+                            <ScrollArea className="h-60">
+                              <div className="p-1">
+                                {filteredAssets.map((asset) => (
+                                  <button
+                                    key={asset.id}
+                                    type="button"
+                                    onClick={() => selectAsset(asset)}
+                                    className="w-full px-3 py-2 text-left hover:bg-accent hover:text-accent-foreground transition-colors rounded-sm border-b border-border/30 last:border-b-0"
+                                  >
+                                    <div className="font-medium text-sm">{asset.id}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {asset.name || 'Unnamed Asset'} • {asset.category || 'Uncategorized'} • ₱{asset.value.toLocaleString()}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          </div>
+                        )}
+                        
+                        {/* No results message */}
+                        {showAssetSuggestions && filteredAssets.length === 0 && assetIdInput.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-card border border-border rounded-lg shadow-lg p-4 text-center text-muted-foreground">
+                            No available assets found for &quot;{assetIdInput}&quot;
+                          </div>
+                        )}
+                      </div>
                       <Button type="button" onClick={addAssetById} disabled={!assetIdInput.trim()}>
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -476,29 +590,31 @@ export default function MoveAssetPage() {
                           <Package className="h-4 w-4" />
                           <span className="font-medium">Selected Assets ({selectedAssets.length})</span>
                         </div>
-                        <ScrollArea className="max-h-40">
-                          <div className="space-y-2 pr-4">
-                            {selectedAssets.map((asset) => (
-                              <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/50">
-                                <div className="flex-1">
-                                  <div className="font-medium">{asset.name}</div>
-                                  <div className="text-sm text-muted-foreground">
-                                    {asset.id} • Current: {asset.currentLocation} • Status: {asset.status}
+                        <div className="border rounded-lg bg-muted/20 p-2">
+                          <ScrollArea className="h-48">
+                            <div className="space-y-2 pr-4">
+                              {selectedAssets.map((asset) => (
+                                <div key={asset.id} className="flex items-center justify-between p-3 border rounded-lg bg-background shadow-sm">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="font-medium truncate">{asset.name || asset.id}</div>
+                                    <div className="text-sm text-muted-foreground truncate">
+                                      {asset.id} • {asset.location || 'No location'} • {asset.status}
+                                    </div>
                                   </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => removeAsset(asset.id)}
+                                    className="text-destructive hover:text-destructive flex-shrink-0 ml-2"
+                                  >
+                                    <X className="h-4 w-4" />
+                                  </Button>
                                 </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeAsset(asset.id)}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  <X className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ))}
-                          </div>
-                        </ScrollArea>
+                              ))}
+                            </div>
+                          </ScrollArea>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -829,18 +945,27 @@ export default function MoveAssetPage() {
               </Card>
 
               {/* Submit Button */}
-              <div className="flex gap-4 pt-4">
-                <Button type="submit" disabled={isSubmitting || selectedAssets.length === 0} className="flex-1">
-                  {isSubmitting ? "Moving Assets..." : `Move ${selectedAssets.length} Asset${selectedAssets.length !== 1 ? 's' : ''}`}
-                </Button>
+              <div className="flex justify-center gap-4 pt-6 border-t">
                 <Button type="button" variant="outline" onClick={() => router.push("/assets")}>
                   Cancel
+                </Button>
+                <Button type="submit" disabled={isSubmitting || selectedAssets.length === 0} className="min-w-[140px]">
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Moving Assets...
+                    </>
+                  ) : (
+                    `Move ${selectedAssets.length} Asset${selectedAssets.length !== 1 ? 's' : ''}`
+                  )}
                 </Button>
               </div>
             </form>
           </Form>
         </CardContent>
       </Card>
+            </>
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

@@ -64,7 +64,7 @@ import {
   SidebarRail,
 } from "@/components/ui/sidebar"
 
-// Asset Dog dashboard data
+// Asset Dog dashboard data - moved outside component to prevent recreation
 const data = {
   user: {
     name: "Asset Manager",
@@ -176,12 +176,12 @@ const data = {
     },
     {
       title: "Users",
-      url: "/users",
+      url: "/admin/users",
       icon: Users,
       items: [
         {
-          title: "All Users",
-          url: "/users",
+          title: "User Management",
+          url: "/admin/users",
         },
         {
           title: "Departments",
@@ -473,7 +473,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavProjects projects={data.projects} />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>

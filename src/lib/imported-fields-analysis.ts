@@ -16,6 +16,10 @@ export interface ImportedFieldsAnalysis {
 export const IMPORTED_FIELDS_ANALYSIS: ImportedFieldsAnalysis = {
   "matchedFields": [
     {
+      "default": "serialNumber",
+      "imported": "serialNumber"
+    },
+    {
       "default": "assetTagId",
       "imported": "id"
     },
@@ -38,11 +42,14 @@ export const IMPORTED_FIELDS_ANALYSIS: ImportedFieldsAnalysis = {
     {
       "default": "model",
       "imported": "model"
+    },
+    {
+      "default": "image",
+      "imported": "image"
     }
   ],
   "unmatchedDefaultFields": [
-    "purchasedFrom",
-    "serialNumber"
+    "purchasedFrom"
   ],
   "unmatchedImportedFields": [
     "name",

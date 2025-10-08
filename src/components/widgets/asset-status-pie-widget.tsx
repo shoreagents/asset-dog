@@ -3,6 +3,7 @@
 import * as React from "react"
 import { TrendingUp } from "lucide-react"
 import { Label, Pie, PieChart } from "recharts"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
 
 import {
   Card,
@@ -18,14 +19,6 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-
-const chartData = [
-  { status: "in-use", count: 1156, fill: "var(--color-in-use)" },
-  { status: "available", count: 68, fill: "var(--color-available)" },
-  { status: "maintenance", count: 23, fill: "var(--color-maintenance)" },
-  { status: "disposed", count: 12, fill: "var(--color-disposed)" },
-  { status: "reserved", count: 45, fill: "var(--color-reserved)" },
-]
 
 const chartConfig = {
   count: {
@@ -54,9 +47,36 @@ const chartConfig = {
 } satisfies ChartConfig
 
 export function AssetStatusPieWidget() {
+  const { data: assets = [], isLoading } = useInstantAssets()
+  
+  const chartData = React.useMemo(() => {
+    if (isLoading) {
+      return [
+        { status: "available", count: 0, fill: "var(--color-available)" },
+        { status: "check-out", count: 0, fill: "var(--color-check-out)" },
+        { status: "maintenance", count: 0, fill: "var(--color-maintenance)" },
+        { status: "dispose", count: 0, fill: "var(--color-dispose)" },
+        { status: "reserve", count: 0, fill: "var(--color-reserve)" },
+      ]
+    }
+    
+    const statusCounts = assets.reduce((acc, asset) => {
+      const status = asset.status.toLowerCase().replace(/\s+/g, '-')
+      acc[status] = (acc[status] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+    
+    return [
+      { status: "available", count: statusCounts.available || 0, fill: "var(--color-available)" },
+      { status: "check-out", count: statusCounts['check-out'] || 0, fill: "var(--color-check-out)" },
+      { status: "maintenance", count: statusCounts.maintenance || 0, fill: "var(--color-maintenance)" },
+      { status: "dispose", count: statusCounts.dispose || 0, fill: "var(--color-dispose)" },
+      { status: "reserve", count: statusCounts.reserve || 0, fill: "var(--color-reserve)" },
+    ].filter(item => item.count > 0)
+  }, [assets, isLoading])
   const totalAssets = React.useMemo(() => {
     return chartData.reduce((acc, curr) => acc + curr.count, 0)
-  }, [])
+  }, [chartData])
 
   return (
     <Card className="flex flex-col hover:shadow-md transition-all duration-300 ease-in-out">

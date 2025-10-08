@@ -8,6 +8,7 @@ export interface SetupData {
   departments: Department[]
   employees: Employee[]
   manufacturers: Manufacturer[]
+  customers: Customer[]
   conditions: Condition[]
   statuses: Status[]
 }
@@ -72,6 +73,17 @@ export interface Manufacturer {
   website?: string
   contactEmail?: string
   assetCount: number
+  isActive: boolean
+}
+
+export interface Customer {
+  id: string
+  name: string
+  type: 'Corporate' | 'Individual'
+  email?: string
+  phone?: string
+  address?: string
+  contactPerson?: string
   isActive: boolean
 }
 
@@ -548,30 +560,94 @@ export const DEFAULT_SETUP_DATA: SetupData = {
     },
     {
       id: "2",
-      name: "In Use",
+      name: "Check Out",
       description: "Asset is currently assigned and in use",
       color: "blue",
       isActive: true
     },
     {
       id: "3",
-      name: "Maintenance",
-      description: "Asset is under maintenance",
-      color: "yellow",
+      name: "Move",
+      description: "Asset is being moved or transferred",
+      color: "orange",
       isActive: true
     },
     {
       id: "4",
-      name: "Disposed",
+      name: "Reserve",
+      description: "Asset is reserved for future use",
+      color: "purple",
+      isActive: true
+    },
+    {
+      id: "5",
+      name: "Lease",
+      description: "Asset is leased to external parties",
+      color: "cyan",
+      isActive: true
+    },
+    {
+      id: "6",
+      name: "Dispose",
       description: "Asset has been disposed of",
       color: "red",
       isActive: true
     },
     {
+      id: "7",
+      name: "Maintenance",
+      description: "Asset is under maintenance",
+      color: "yellow",
+      isActive: true
+    }
+  ],
+  customers: [
+    {
+      id: "1",
+      name: "ABC Corporation",
+      type: "Corporate",
+      email: "leasing@abccorp.com",
+      phone: "+1-555-0101",
+      address: "123 Business Ave, Corporate City, CC 12345",
+      contactPerson: "John Smith",
+      isActive: true
+    },
+    {
+      id: "2",
+      name: "TechStart Solutions",
+      type: "Corporate",
+      email: "admin@techstart.com",
+      phone: "+1-555-0102",
+      address: "456 Innovation Drive, Tech Park, TP 67890",
+      contactPerson: "Sarah Johnson",
+      isActive: true
+    },
+    {
+      id: "3",
+      name: "Global Industries Ltd",
+      type: "Corporate",
+      email: "operations@globalind.com",
+      phone: "+1-555-0103",
+      address: "789 Enterprise Blvd, Industrial Zone, IZ 11111",
+      contactPerson: "Mike Wilson",
+      isActive: true
+    },
+    {
+      id: "4",
+      name: "Jane Doe",
+      type: "Individual",
+      email: "jane.doe@email.com",
+      phone: "+1-555-0104",
+      address: "321 Personal St, Residential Area, RA 22222",
+      isActive: true
+    },
+    {
       id: "5",
-      name: "Reserved",
-      description: "Asset is reserved for future use",
-      color: "purple",
+      name: "Robert Chen",
+      type: "Individual",
+      email: "robert.chen@email.com",
+      phone: "+1-555-0105",
+      address: "654 Home Ave, Suburban District, SD 33333",
       isActive: true
     }
   ]
@@ -598,13 +674,26 @@ export class SetupDataManager {
       const stored = localStorage.getItem('setup-data')
       if (stored) {
         try {
-          return JSON.parse(stored)
+          const parsedData = JSON.parse(stored)
+          // Ensure all required properties exist (migration for existing data)
+          return this.migrateSetupData(parsedData)
         } catch (error) {
           console.error('Error parsing setup data:', error)
         }
       }
     }
     return DEFAULT_SETUP_DATA
+  }
+
+  private migrateSetupData(data: any): SetupData {
+    // Ensure all required properties exist with default values
+    const migratedData = {
+      ...DEFAULT_SETUP_DATA,
+      ...data,
+      // Ensure customers array exists
+      customers: data.customers || DEFAULT_SETUP_DATA.customers
+    }
+    return migratedData
   }
 
   private saveSetupData(): void {
@@ -792,6 +881,55 @@ export class SetupDataManager {
     return false
   }
 
+  // Customers
+  public getCustomers(): Customer[] {
+    if (!this.setupData.customers) {
+      // If customers don't exist, initialize with default data
+      this.setupData.customers = DEFAULT_SETUP_DATA.customers
+      this.saveSetupData()
+    }
+    return this.setupData.customers.filter(customer => customer.isActive)
+  }
+
+  public addCustomer(customer: Omit<Customer, 'id'>): Customer {
+    if (!this.setupData.customers) {
+      this.setupData.customers = []
+    }
+    const newCustomer: Customer = {
+      ...customer,
+      id: Date.now().toString()
+    }
+    this.setupData.customers.push(newCustomer)
+    this.saveSetupData()
+    return newCustomer
+  }
+
+  public updateCustomer(id: string, updates: Partial<Customer>): boolean {
+    if (!this.setupData.customers) {
+      return false
+    }
+    const index = this.setupData.customers.findIndex(customer => customer.id === id)
+    if (index !== -1) {
+      this.setupData.customers[index] = { ...this.setupData.customers[index], ...updates }
+      this.saveSetupData()
+      return true
+    }
+    return false
+  }
+
+  public deleteCustomer(id: string): boolean {
+    if (!this.setupData.customers) {
+      return false
+    }
+    const index = this.setupData.customers.findIndex(customer => customer.id === id)
+    if (index !== -1) {
+      this.setupData.customers.splice(index, 1)
+      this.saveSetupData()
+      return true
+    }
+    return false
+  }
+
   // Manufacturers
   public getManufacturers(): Manufacturer[] {
     return this.setupData.manufacturers.filter(man => man.isActive)
@@ -867,4 +1005,6 @@ export class SetupDataManager {
 
 // Export singleton instance
 export const setupDataManager = SetupDataManager.getInstance()
+
+
 

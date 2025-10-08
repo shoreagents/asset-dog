@@ -6,7 +6,9 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
-import { getAllAssets } from "@/lib/centralized-assets"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
+import { useUpdateAsset } from "@/hooks/use-assets-query"
+import { setupDataManager } from "@/lib/setup-data"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -38,32 +40,46 @@ import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 
-// Use centralized asset data - filter for leased assets
-const mockLeasedAssets = getAllAssets().filter(asset => asset.status === "In Use").map(asset => ({
-  id: asset.id,
-  name: asset.name,
-  category: asset.category,
-  lessee: "TechCorp Solutions",
-  lesseeContact: "John Smith",
-  leaseStartDate: "2024-01-15",
-  leaseEndDate: "2024-02-15",
-  monthlyRate: 500,
-  status: "Leased"
-}))
+// Get leased assets from real data
+const getLeasedAssets = (assets: any[]) => {
+  return assets.filter(asset => asset.status === "Lease")
+}
 
-// Mock return locations
-const mockReturnLocations = [
-  "IT Storage Room",
-  "Main Office",
-  "Conference Room A",
-  "Conference Room B",
-  "Storage Room",
-  "Warehouse",
-  "Parking Garage",
-  "Reception Area",
-  "Break Room",
-  "Server Room"
-]
+// Get return locations from setup data
+const getReturnLocations = () => {
+  const locations = setupDataManager.getLocations()
+  const sites = setupDataManager.getSites()
+  
+  // Convert to strings and combine locations and sites
+  const allLocations: string[] = [
+    ...locations.map(loc => loc.name),
+    ...sites.map(site => site.name)
+  ]
+  
+  // Add common return locations (only if they don't already exist)
+  const commonLocations = [
+    "IT Storage Room",
+    "Main Office Reception",
+    "Conference Room A",
+    "Conference Room B",
+    "Storage Room",
+    "Warehouse",
+    "Parking Garage",
+    "Reception Area",
+    "Break Room",
+    "Server Room"
+  ]
+  
+  // Only add locations that don't already exist
+  commonLocations.forEach(location => {
+    if (!allLocations.includes(location)) {
+      allLocations.push(location)
+    }
+  })
+  
+  // Remove duplicates and return unique locations
+  return [...new Set(allLocations)]
+}
 
 // Form validation schema
 const leaseReturnFormSchema = z.object({
@@ -85,10 +101,17 @@ type LeaseReturnFormValues = z.infer<typeof leaseReturnFormSchema>
 
 export default function LeaseReturnPage() {
   const router = useRouter()
+  const { data: assets = [], isLoading, error } = useInstantAssets()
+  const updateAssetMutation = useUpdateAsset()
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedAssets, setSelectedAssets] = useState<string[]>([])
   const [assetSearch, setAssetSearch] = useState("")
   const [locationSearch, setLocationSearch] = useState("")
   const [filteredLocations, setFilteredLocations] = useState<string[]>([])
+
+  // Get real data
+  const leasedAssets = getLeasedAssets(assets)
+  const returnLocations = getReturnLocations()
 
   const form = useForm<LeaseReturnFormValues>({
     resolver: zodResolver(leaseReturnFormSchema),
@@ -107,17 +130,17 @@ export default function LeaseReturnPage() {
   const returnCondition = form.watch("returnCondition")
 
   // Filter assets based on search
-  const filteredAssets = mockLeasedAssets.filter(asset =>
+  const filteredAssets = leasedAssets.filter(asset =>
     asset.id.toLowerCase().includes(assetSearch.toLowerCase()) ||
-    asset.name.toLowerCase().includes(assetSearch.toLowerCase()) ||
-    asset.lessee.toLowerCase().includes(assetSearch.toLowerCase())
+    (asset.name || '').toLowerCase().includes(assetSearch.toLowerCase()) ||
+    (asset.notes || '').toLowerCase().includes(assetSearch.toLowerCase())
   )
 
   // Filter locations based on search
   const handleLocationSearch = (value: string) => {
     setLocationSearch(value)
     if (value.length > 0) {
-      const filtered = mockReturnLocations.filter(location =>
+      const filtered = returnLocations.filter(location =>
         location.toLowerCase().includes(value.toLowerCase())
       )
       setFilteredLocations(filtered)
@@ -145,18 +168,75 @@ export default function LeaseReturnPage() {
 
   // Get selected asset details
   const getSelectedAssetDetails = () => {
-    return selectedAssets.map(id => mockLeasedAssets.find(asset => asset.id === id)).filter(Boolean)
+    return selectedAssets.map(id => leasedAssets.find(asset => asset.id === id)).filter(Boolean)
   }
 
-  // Calculate total security deposit refund
+  // Calculate total security deposit refund (based on asset value)
   const getTotalSecurityDepositRefund = () => {
-    return getSelectedAssetDetails().reduce((sum, asset) => sum + (asset!.monthlyRate * 2), 0) // Assuming 2 months as security deposit
+    return getSelectedAssetDetails().reduce((sum, asset) => sum + ((asset!.value || 0) * 0.1), 0) // 10% of asset value as security deposit
   }
 
-  const onSubmit = (data: LeaseReturnFormValues) => {
-    console.log("Lease Return Data:", data)
-    toast.success("Assets returned successfully!")
-    router.push("/assets")
+  const onSubmit = async (data: LeaseReturnFormValues) => {
+    if (selectedAssets.length === 0) {
+      toast.error("No assets selected", {
+        description: "Please add at least one asset to return",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    
+    try {
+      let successCount = 0
+      let failedCount = 0
+      
+      // Update each selected asset
+      for (const assetId of selectedAssets) {
+        try {
+          const returnNote = `[LEASE RETURN ${format(data.returnDate, "yyyy-MM-dd")}] Returned to ${data.returnLocation} | Condition: ${data.returnCondition}${data.damageDescription ? ` | Damage: ${data.damageDescription}` : ''} | Security Deposit Refund: $${data.securityDepositRefund} | Final Payment: $${data.finalPayment}${data.notes ? ` | Notes: ${data.notes}` : ''}`
+          
+          const updateData = {
+            status: "Available" as const,
+            location: data.returnLocation,
+            notes: returnNote
+          }
+          
+          const result = await updateAssetMutation.mutateAsync({ id: assetId, updates: updateData })
+          if (result.success) {
+            successCount++
+          } else {
+            failedCount++
+          }
+        } catch (error) {
+          console.error(`Failed to return asset ${assetId}:`, error)
+          failedCount++
+        }
+      }
+
+      if (successCount > 0) {
+        const totalValue = getSelectedAssetDetails().reduce((sum, asset) => sum + (asset!.value || 0), 0)
+        toast.success(`Successfully returned ${successCount} asset${successCount !== 1 ? 's' : ''}`, {
+          description: `Total value: ₱${totalValue.toLocaleString()}${failedCount > 0 ? ` (${failedCount} failed)` : ''}`,
+        })
+        
+        // Redirect to assets page after successful return
+        setTimeout(() => {
+          router.push("/assets")
+        }, 1500)
+      } else {
+        toast.error("Failed to return assets", {
+          description: "No assets could be returned. Please try again.",
+        })
+      }
+    } catch (error) {
+      console.error("Error returning assets:", error)
+      toast.error("Failed to return assets", {
+        description: "Please try again or contact support if the issue persists.",
+        duration: 4000,
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -221,6 +301,23 @@ export default function LeaseReturnPage() {
             </div>
           </div>
 
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading leased assets from database...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="text-red-500 mb-4">⚠️</div>
+                <p className="text-red-600 font-medium">Failed to load assets</p>
+                <p className="text-muted-foreground text-sm mt-2">{error instanceof Error ? error.message : "Failed to load assets"}</p>
+              </div>
+            </div>
+          ) : (
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               {/* Leased Asset Selection */}
@@ -255,12 +352,12 @@ export default function LeaseReturnPage() {
                                 onClick={() => addAsset(asset.id)}
                               >
                                 <div>
-                                  <div className="font-medium">{asset.id} - {asset.name}</div>
+                                  <div className="font-medium">{asset.id} - {asset.name || 'Unnamed Asset'}</div>
                                   <div className="text-sm text-muted-foreground">
-                                    {asset.category} • {asset.lessee} • ${asset.monthlyRate}/month
+                                    {asset.category || 'Uncategorized'} • ₱{asset.value?.toLocaleString() || '0'} • {asset.location || 'No location'}
                                   </div>
                                   <div className="text-xs text-muted-foreground">
-                                    Lease: {format(new Date(asset.leaseStartDate), "MMM dd")} - {format(new Date(asset.leaseEndDate), "MMM dd, yyyy")}
+                                    {asset.notes ? `Lease details in notes` : 'No lease details available'}
                                   </div>
                                 </div>
                                 <Plus className="h-4 w-4" />
@@ -306,12 +403,12 @@ export default function LeaseReturnPage() {
                         {getSelectedAssetDetails().map((asset) => (
                           <div key={asset!.id} className="flex items-center justify-between p-3 border rounded-md">
                             <div>
-                              <div className="font-medium">{asset!.id} - {asset!.name}</div>
+                              <div className="font-medium">{asset!.id} - {asset!.name || 'Unnamed Asset'}</div>
                               <div className="text-sm text-muted-foreground">
-                                {asset!.category} • {asset!.lessee} • ${asset!.monthlyRate}/month
+                                {asset!.category || 'Uncategorized'} • ₱{asset!.value?.toLocaleString() || '0'} • {asset!.location || 'No location'}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                Lease: {format(new Date(asset!.leaseStartDate), "MMM dd")} - {format(new Date(asset!.leaseEndDate), "MMM dd, yyyy")}
+                                {asset!.notes ? `Lease details in notes` : 'No lease details available'}
                               </div>
                             </div>
                             <Button
@@ -616,12 +713,20 @@ export default function LeaseReturnPage() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit">
-                  Process Return
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Processing Return...
+                    </>
+                  ) : (
+                    "Process Return"
+                  )}
                 </Button>
               </div>
             </form>
           </Form>
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

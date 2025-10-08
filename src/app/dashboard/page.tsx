@@ -38,12 +38,15 @@ import Link from "next/link"
 import { DragEndEvent, DragOverEvent, DragStartEvent } from "@dnd-kit/core"
 import { WidgetSize } from "@/types/widgets"
 import { useState, useEffect } from "react"
-import { DataManager, Asset } from "@/lib/lists-data"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
+import { useAddAsset, useUpdateAsset } from "@/hooks/use-assets-query"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
+import { useRouter } from "next/navigation"
+import { createClient } from "@/lib/supabase/client"
 
 // Form schemas matching the actual pages
 const assetFormSchema = z.object({
@@ -169,6 +172,10 @@ const conditions = [
 ]
 
 export default function Page() {
+  const router = useRouter()
+  const supabase = createClient()
+  const [isLoading, setIsLoading] = useState(false) // Start as false for instant loading
+  
   const [activeId, setActiveId] = useState<string | null>(null)
   const [overId, setOverId] = useState<string | null>(null)
   
@@ -180,6 +187,54 @@ export default function Page() {
   
   // Mobile menu state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser()
+        
+        if (error || !user) {
+          console.log('No authenticated user, redirecting to login')
+          router.push('/login')
+          router.refresh()
+          return
+        }
+        
+        // User is authenticated, no need to show loading
+        // setIsLoading(false) // Removed since we start with false
+      } catch (error) {
+        console.error('Auth check error:', error)
+        router.push('/login')
+        router.refresh()
+      }
+    }
+
+    checkAuth()
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, !!session)
+      
+      if (event === 'SIGNED_OUT') {
+        console.log('User signed out, redirecting to login')
+        setIsLoading(true) // Show loading during redirect
+        router.push('/login')
+        router.refresh()
+      } else if (!session) {
+        console.log('No session found, redirecting to login')
+        setIsLoading(true) // Show loading during redirect
+        router.push('/login')
+        router.refresh()
+      } else if (event === 'SIGNED_IN' && session) {
+        setIsLoading(false) // Hide loading when user signs in
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
+  }, [router, supabase])
   
   // Close mobile menu when clicking outside
   useEffect(() => {
@@ -199,9 +254,9 @@ export default function Page() {
   }, [mobileMenuOpen])
   
   // Asset selection states
-  const [selectedCheckOutAssets, setSelectedCheckOutAssets] = useState<Asset[]>([])
-  const [selectedCheckInAssets, setSelectedCheckInAssets] = useState<Asset[]>([])
-  const [selectedMoveAssets, setSelectedMoveAssets] = useState<Asset[]>([])
+  const [selectedCheckOutAssets, setSelectedCheckOutAssets] = useState<any[]>([])
+  const [selectedCheckInAssets, setSelectedCheckInAssets] = useState<any[]>([])
+  const [selectedMoveAssets, setSelectedMoveAssets] = useState<any[]>([])
   
   // Asset ID inputs
   const [checkOutAssetIdInput, setCheckOutAssetIdInput] = useState("")
@@ -271,6 +326,11 @@ export default function Page() {
     getAvailableWidgets 
   } = useDashboard()
 
+  // Use assets hook for Supabase integration
+  const { data: assets = [], isLoading: assetsLoading, error: assetsError } = useInstantAssets()
+  const addAssetMutation = useAddAsset()
+  const updateAssetMutation = useUpdateAsset()
+
   const availableWidgets = getAvailableWidgets()
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -297,10 +357,10 @@ export default function Page() {
   }
 
   // Asset selection helper functions
-  const addAssetById = (assetIdInput: string, setAssetIdInput: (value: string) => void, selectedAssets: Asset[], setSelectedAssets: (assets: Asset[]) => void, availableAssets: Asset[]) => {
+  const addAssetById = (assetIdInput: string, setAssetIdInput: (value: string) => void, selectedAssets: any[], setSelectedAssets: (assets: any[]) => void, availableAssets: any[]) => {
     if (!assetIdInput.trim()) return
 
-    const asset = availableAssets.find((a: Asset) => a.id.toLowerCase() === assetIdInput.toLowerCase())
+    const asset = availableAssets.find((a: any) => a.id.toLowerCase() === assetIdInput.toLowerCase())
     if (!asset) {
       toast.error("Asset not found", {
         description: `No available asset found with ID: ${assetIdInput}`,
@@ -308,7 +368,7 @@ export default function Page() {
       return
     }
 
-    if (selectedAssets.find((a: Asset) => a.id === asset.id)) {
+    if (selectedAssets.find((a: any) => a.id === asset.id)) {
       toast.error("Asset already added", {
         description: `Asset ${asset.id} is already in the list`,
       })
@@ -322,8 +382,8 @@ export default function Page() {
     })
   }
 
-  const removeAsset = (assetId: string, selectedAssets: Asset[], setSelectedAssets: (assets: Asset[]) => void) => {
-    setSelectedAssets(selectedAssets.filter((asset: Asset) => asset.id !== assetId))
+  const removeAsset = (assetId: string, selectedAssets: any[], setSelectedAssets: (assets: any[]) => void) => {
+    setSelectedAssets(selectedAssets.filter((asset: any) => asset.id !== assetId))
   }
 
   // Person search functions
@@ -362,8 +422,7 @@ export default function Page() {
   // Form submission handlers matching actual pages
   const handleAddAsset = async (data: AssetFormValues) => {
     try {
-      const dataManager = DataManager.getInstance()
-      const newAsset = dataManager.addAsset({
+      const assetData = {
         name: data.name,
         description: data.description || "",
         category: data.category,
@@ -378,18 +437,17 @@ export default function Page() {
         department: data.department && data.department !== "none" ? data.department : "Unassigned",
         brand: data.manufacturer || "",
         model: data.model || "",
-        serialNumber: data.serialNumber || undefined,
+        serialNumber: data.serialNumber || '',
         manufacturer: data.manufacturer || undefined,
         notes: data.notes || undefined,
-      })
+      }
       
-      toast.success("Asset added successfully!", {
-        description: `${data.name} has been added to your inventory.`,
-      })
+      await addAssetMutation.mutateAsync(assetData)
       
       addAssetForm.reset()
       setAddAssetOpen(false)
     } catch (error) {
+      console.error("Error adding asset:", error)
       toast.error("Failed to add asset", {
         description: "Please try again.",
       })
@@ -405,21 +463,21 @@ export default function Page() {
         return
       }
 
-      const dataManager = DataManager.getInstance()
       let successCount = 0
       let failedCount = 0
       
       // Update each selected asset
       for (const asset of selectedCheckOutAssets) {
-        const updated = dataManager.updateAsset(asset.id, {
-          status: "In Use",
+        const updateData = {
+          status: "Check Out" as const,
           assignedTo: data.assignedTo,
           notes: data.notes
-        })
+        }
         
-        if (updated) {
+        try {
+          await updateAssetMutation.mutateAsync({ id: asset.id, updates: updateData })
           successCount++
-        } else {
+        } catch (error) {
           failedCount++
         }
       }
@@ -430,7 +488,7 @@ export default function Page() {
         })
       } else {
         toast.error("Failed to check out assets", {
-          description: "No assets could be updated. They may be read-only imported assets.",
+          description: "No assets could be updated. Please try again.",
         })
       }
       
@@ -438,6 +496,7 @@ export default function Page() {
       setSelectedCheckOutAssets([])
       setCheckOutOpen(false)
     } catch (error) {
+      console.error("Error checking out assets:", error)
       toast.error("Failed to check out assets", {
         description: "Please try again.",
       })
@@ -453,22 +512,22 @@ export default function Page() {
         return
       }
 
-      const dataManager = DataManager.getInstance()
       let successCount = 0
       let failedCount = 0
       
       // Update each selected asset
       for (const asset of selectedCheckInAssets) {
-        const updated = dataManager.updateAsset(asset.id, {
-          status: "Available",
+        const updateData = {
+          status: "Available" as const,
           assignedTo: null,
           location: data.location,
           notes: data.notes
-        })
+        }
         
-        if (updated) {
+        try {
+          await updateAssetMutation.mutateAsync({ id: asset.id, updates: updateData })
           successCount++
-        } else {
+        } catch (error) {
           failedCount++
         }
       }
@@ -479,7 +538,7 @@ export default function Page() {
         })
       } else {
         toast.error("Failed to check in assets", {
-          description: "No assets could be updated. They may be read-only imported assets.",
+          description: "No assets could be updated. Please try again.",
         })
       }
       
@@ -487,6 +546,7 @@ export default function Page() {
       setSelectedCheckInAssets([])
       setCheckInOpen(false)
     } catch (error) {
+      console.error("Error checking in assets:", error)
       toast.error("Failed to check in assets", {
         description: "Please try again.",
       })
@@ -502,13 +562,12 @@ export default function Page() {
         return
       }
 
-      const dataManager = DataManager.getInstance()
       let successCount = 0
       let failedCount = 0
       
       // Update each selected asset
       for (const asset of selectedMoveAssets) {
-        const updateData: Partial<Asset> = {
+        const updateData: any = {
           location: data.newLocation,
           notes: data.notes
         }
@@ -522,11 +581,10 @@ export default function Page() {
           updateData.department = data.departmentTransfer
         }
         
-        const updated = dataManager.updateAsset(asset.id, updateData)
-        
-        if (updated) {
+        try {
+          await updateAssetMutation.mutateAsync({ id: asset.id, updates: updateData })
           successCount++
-        } else {
+        } catch (error) {
           failedCount++
         }
       }
@@ -537,7 +595,7 @@ export default function Page() {
         })
       } else {
         toast.error("Failed to move assets", {
-          description: "No assets could be updated. They may be read-only imported assets.",
+          description: "No assets could be updated. Please try again.",
         })
       }
       
@@ -545,10 +603,23 @@ export default function Page() {
       setSelectedMoveAssets([])
       setMoveOpen(false)
     } catch (error) {
+      console.error("Error moving assets:", error)
       toast.error("Failed to move assets", {
         description: "Please try again.",
       })
     }
+  }
+
+  // Show loading state while checking authentication
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <RefreshCw className="h-6 w-6 animate-spin" />
+          <span>Loading...</span>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1079,8 +1150,7 @@ export default function Page() {
                                   onKeyPress={(e) => {
                                     if (e.key === 'Enter') {
                                       e.preventDefault()
-                                      const dataManager = DataManager.getInstance()
-                                      const availableAssets = dataManager.getAssets().filter(asset => asset.status === "Available")
+                                      const availableAssets = assets.filter(asset => asset.status === "Available")
                                       addAssetById(checkOutAssetIdInput, setCheckOutAssetIdInput, selectedCheckOutAssets, setSelectedCheckOutAssets, availableAssets)
                                     }
                                   }}
@@ -1088,8 +1158,7 @@ export default function Page() {
                                 <Button 
                                   type="button" 
                                   onClick={() => {
-                                    const dataManager = DataManager.getInstance()
-                                    const availableAssets = dataManager.getAssets().filter(asset => asset.status === "Available")
+                                    const availableAssets = assets.filter(asset => asset.status === "Available")
                                     addAssetById(checkOutAssetIdInput, setCheckOutAssetIdInput, selectedCheckOutAssets, setSelectedCheckOutAssets, availableAssets)
                                   }} 
                                   disabled={!checkOutAssetIdInput.trim()}
@@ -1112,7 +1181,7 @@ export default function Page() {
                                           <div className="flex-1">
                                             <div className="font-medium">{asset.name}</div>
                                             <div className="text-sm text-muted-foreground">
-                                              {asset.id} • {asset.category} • ${asset.value.toLocaleString()}
+                                              {asset.id} • {asset.category} • ${asset.value?.toLocaleString() || '0'}
                                             </div>
                                           </div>
                                           <Button
@@ -1435,8 +1504,7 @@ export default function Page() {
                                   onKeyPress={(e) => {
                                     if (e.key === 'Enter') {
                                       e.preventDefault()
-                                      const dataManager = DataManager.getInstance()
-                                      const inUseAssets = dataManager.getAssets().filter(asset => asset.status === "In Use")
+                                      const inUseAssets = assets.filter(asset => asset.status === "Check Out" || asset.status === "Reserve" || asset.status === "Maintenance")
                                       addAssetById(checkInAssetIdInput, setCheckInAssetIdInput, selectedCheckInAssets, setSelectedCheckInAssets, inUseAssets)
                                     }
                                   }}
@@ -1444,8 +1512,7 @@ export default function Page() {
                                 <Button 
                                   type="button" 
                                   onClick={() => {
-                                    const dataManager = DataManager.getInstance()
-                                    const inUseAssets = dataManager.getAssets().filter(asset => asset.status === "In Use")
+                                    const inUseAssets = assets.filter(asset => asset.status === "Check Out" || asset.status === "Reserve" || asset.status === "Maintenance")
                                     addAssetById(checkInAssetIdInput, setCheckInAssetIdInput, selectedCheckInAssets, setSelectedCheckInAssets, inUseAssets)
                                   }} 
                                   disabled={!checkInAssetIdInput.trim()}
@@ -1757,18 +1824,14 @@ export default function Page() {
                                   onKeyPress={(e) => {
                                     if (e.key === 'Enter') {
                                       e.preventDefault()
-                                      const dataManager = DataManager.getInstance()
-                                      const allAssets = dataManager.getAssets()
-                                      addAssetById(moveAssetIdInput, setMoveAssetIdInput, selectedMoveAssets, setSelectedMoveAssets, allAssets)
+                                      addAssetById(moveAssetIdInput, setMoveAssetIdInput, selectedMoveAssets, setSelectedMoveAssets, assets)
                                     }
                                   }}
                                 />
                                 <Button 
                                   type="button" 
                                   onClick={() => {
-                                    const dataManager = DataManager.getInstance()
-                                    const allAssets = dataManager.getAssets()
-                                    addAssetById(moveAssetIdInput, setMoveAssetIdInput, selectedMoveAssets, setSelectedMoveAssets, allAssets)
+                                    addAssetById(moveAssetIdInput, setMoveAssetIdInput, selectedMoveAssets, setSelectedMoveAssets, assets)
                                   }} 
                                   disabled={!moveAssetIdInput.trim()}
                                 >

@@ -49,13 +49,13 @@ export interface ImportedAssetData {
 // Convert imported data to our internal Asset format
 export interface Asset {
   id: string
-  name: string
+  name?: string
   description: string
   category: string
   subCategory: string
   location: string
   site: string
-  status: "Available" | "In Use" | "Maintenance" | "Disposed"
+  status: "Available" | "Check Out" | "Move" | "Reserve" | "Lease" | "Dispose" | "Maintenance"
   value: number
   purchaseDate: string
   dateAcquired: string
@@ -63,9 +63,17 @@ export interface Asset {
   department: string
   brand: string
   model: string
-  serialNumber?: string
+  serialNumber: string
   manufacturer?: string
   notes?: string
+  
+  // Image fields
+  imageUrl?: string
+  imageFileName?: string
+  
+  // Timestamp fields
+  updatedAt?: string
+  createdAt?: string
   
   // Additional imported fields
   purchasedFrom?: string
@@ -140,17 +148,28 @@ export function convertImportedDataToAsset(row: string[]): Asset {
   const numericCost = parseFloat(cleanCost) || 0
 
   // Map status to our internal status
-  const mapStatus = (status: string): "Available" | "In Use" | "Maintenance" | "Disposed" => {
+  const mapStatus = (status: string): "Available" | "Check Out" | "Move" | "Reserve" | "Lease" | "Dispose" | "Maintenance" => {
     switch (status?.toLowerCase()) {
       case 'available':
+      case 'check in':
         return 'Available'
       case 'in use':
       case 'issued':
-        return 'In Use'
+      case 'check out':
+        return 'Check Out'
+      case 'move':
+        return 'Move'
+      case 'reserve':
+      case 'reserved':
+        return 'Reserve'
+      case 'lease':
+      case 'leased':
+        return 'Lease'
+      case 'disposed':
+      case 'dispose':
+        return 'Dispose'
       case 'maintenance':
         return 'Maintenance'
-      case 'disposed':
-        return 'Disposed'
       default:
         return 'Available'
     }
@@ -172,7 +191,7 @@ export function convertImportedDataToAsset(row: string[]): Asset {
     department: department || '',
     brand: brand || '',
     model: model || '',
-    serialNumber: serialNo || undefined,
+    serialNumber: serialNo || '',
     manufacturer: brand || undefined,
     notes: additionalInformation || remarks || undefined,
     
