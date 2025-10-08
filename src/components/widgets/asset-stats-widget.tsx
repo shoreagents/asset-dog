@@ -5,21 +5,29 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { DataManager } from "@/lib/lists-data"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
 import { Package, CheckCircle, Clock, DollarSign } from "lucide-react"
 
 export function AssetStatsWidget() {
+  const { data: assets = [], isLoading } = useInstantAssets()
+  
   const assetStats = React.useMemo(() => {
-    const dataManager = DataManager.getInstance()
-    const assets = dataManager.getAssets()
+    if (isLoading) {
+      return {
+        totalAssets: 0,
+        activeAssets: 0,
+        maintenanceDue: 0,
+        totalValue: 0
+      }
+    }
     
     return {
       totalAssets: assets.length,
-      activeAssets: assets.filter(asset => asset.status === 'In Use').length,
+      activeAssets: assets.filter(asset => asset.status === 'Check Out' || asset.status === 'Reserve').length,
       maintenanceDue: assets.filter(asset => asset.status === 'Maintenance').length,
       totalValue: assets.reduce((sum, asset) => sum + (asset.value || 0), 0)
     }
-  }, [])
+  }, [assets, isLoading])
 
   return (
     <Card className="hover:shadow-md transition-all duration-300 ease-in-out">

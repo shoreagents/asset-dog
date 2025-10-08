@@ -16,12 +16,10 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { DataManager } from "@/lib/lists-data"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
 
 // Function to generate chart data from real asset data
-const generateChartData = () => {
-  const dataManager = DataManager.getInstance()
-  const assets = dataManager.getAssets()
+const generateChartData = (assets: any[]) => {
   
   // Group assets by category and calculate total values
   const categoryTotals = assets.reduce((acc, asset) => {
@@ -39,11 +37,11 @@ const generateChartData = () => {
   
   const itValue = Object.entries(categoryTotals)
     .filter(([category]) => itCategories.some(itCat => category.includes(itCat)))
-    .reduce((sum, [, value]) => sum + value, 0)
+    .reduce((sum, [, value]) => sum + (value as number), 0)
   
   const nonItValue = Object.entries(categoryTotals)
     .filter(([category]) => nonItCategories.some(nonItCat => category.includes(nonItCat)))
-    .reduce((sum, [, value]) => sum + value, 0)
+    .reduce((sum, [, value]) => sum + (value as number), 0)
   
   // Generate 30 days of data with some variation
   const chartData = []
@@ -81,10 +79,14 @@ const chartConfig = {
 } satisfies ChartConfig
 
 export function AssetValueChartWidget() {
+  const { data: assets = [], isLoading } = useInstantAssets()
   const [activeChart, setActiveChart] =
     React.useState<keyof typeof chartConfig>("hardware")
 
-  const chartData = React.useMemo(() => generateChartData(), [])
+  const chartData = React.useMemo(() => {
+    if (isLoading) return []
+    return generateChartData(assets)
+  }, [assets, isLoading])
 
   const total = React.useMemo(
     () => ({

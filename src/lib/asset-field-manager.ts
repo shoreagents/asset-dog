@@ -5,12 +5,13 @@ import { IMPORTED_FIELDS_ANALYSIS, FIELD_MAPPING, IMPORTED_FIELD_NAMES } from '.
 export interface AssetField {
   id: string
   name: string
-  type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea'
+  type: 'text' | 'number' | 'date' | 'select' | 'checkbox' | 'textarea' | 'file'
   label: string
   description?: string
   required: boolean
   included: boolean
   options?: string[] // For select/checkbox types
+  accept?: string // For file types
   placeholder?: string
   validation?: {
     min?: number
@@ -70,15 +71,23 @@ class AssetFieldManager {
 
   // Ensure fields are properly categorized
   private ensureFieldCategorization(): void {
-    this.fields = this.fields.map(field => {
+    this.fields = this.fields.map((field: any) => {
       // If field doesn't have isStandard property, determine it
       if (field.isStandard === undefined) {
         const isDefaultField = IMPORTED_FIELDS_ANALYSIS.matchedFields.some(
           match => match.default === field.name
         )
-        return {
-          ...field,
-          isStandard: isDefaultField
+        if (isDefaultField) {
+          return {
+            ...field,
+            isStandard: true
+          } as StandardAssetField
+        } else {
+          return {
+            ...field,
+            isStandard: false,
+            dataType: this.getDataTypeForField(field.name)
+          } as CustomAssetField
         }
       }
       return field
@@ -115,14 +124,40 @@ class AssetFieldManager {
   private addMatchedDefaultFields(): void {
     const matchedFields = IMPORTED_FIELDS_ANALYSIS.matchedFields
     
-    matchedFields.forEach(match => {
-      const fieldConfig = this.getDefaultFieldConfig(match.default)
-      if (fieldConfig) {
-        const standardField: StandardAssetField = {
-          ...fieldConfig,
-          isStandard: true
+    // Define the desired order for standard fields
+      const fieldOrder = [
+        'assetTagId',
+        'purchaseDate',
+        'description',
+        'serialNumber',
+        'brand',
+        'model',
+        'cost',
+        'image'
+      ]
+    
+    // Add fields in the specified order
+    fieldOrder.forEach(fieldName => {
+      const match = matchedFields.find(m => m.default === fieldName)
+      if (match) {
+        const fieldConfig = this.getDefaultFieldConfig(fieldName)
+        if (fieldConfig) {
+          const standardField: StandardAssetField = {
+            ...fieldConfig,
+            isStandard: true
+          }
+          this.fields.push(standardField)
         }
-        this.fields.push(standardField)
+      } else if (fieldName === 'image') {
+        // Always include image field even if not matched
+        const fieldConfig = this.getDefaultFieldConfig(fieldName)
+        if (fieldConfig) {
+          const standardField: StandardAssetField = {
+            ...fieldConfig,
+            isStandard: true
+          }
+          this.fields.push(standardField)
+        }
       }
     })
   }
@@ -157,6 +192,17 @@ class AssetFieldManager {
         included: true,
         example: 'PT2021-0994',
         placeholder: 'Enter asset tag ID'
+      },
+      'name': {
+        id: 'asset-name',
+        name: 'name',
+        type: 'text',
+        label: 'Asset Name',
+        description: 'Name/title of the asset',
+        required: true,
+        included: true,
+        example: 'Dell Laptop XPS 13',
+        placeholder: 'Enter asset name'
       },
       'description': {
         id: 'asset-description',
@@ -206,6 +252,17 @@ class AssetFieldManager {
         example: 'ARUBA',
         placeholder: 'Enter brand name'
       },
+      'serialNumber': {
+        id: 'serial-number',
+        name: 'serialNumber',
+        type: 'text',
+        label: 'Serial Number',
+        description: 'Unique serial number of the asset',
+        required: false,
+        included: true,
+        example: 'SN123456789',
+        placeholder: 'Enter serial number'
+      },
       'model': {
         id: 'model',
         name: 'model',
@@ -216,6 +273,18 @@ class AssetFieldManager {
         included: true,
         example: 'ARUBA 6100 48G 4SFP+ Switch JL676A',
         placeholder: 'Enter model name'
+      },
+      'image': {
+        id: 'image',
+        name: 'image',
+        type: 'file',
+        label: 'Asset Image',
+        description: 'Upload an image of the asset',
+        required: false,
+        included: true,
+        example: 'asset-photo.jpg',
+        placeholder: 'Select image file',
+        accept: 'image/*'
       }
     }
     
@@ -225,16 +294,6 @@ class AssetFieldManager {
   // Get imported field configuration
   private getImportedFieldConfig(fieldName: string): Omit<CustomAssetField, 'isStandard' | 'dataType'> | null {
     const fieldConfigs: Record<string, Omit<CustomAssetField, 'isStandard' | 'dataType'>> = {
-      'name': {
-        id: 'asset-name',
-        name: 'name',
-        type: 'text',
-        label: 'Asset Name',
-        description: 'Name of the asset',
-        required: false,
-        included: true,
-        placeholder: 'Enter asset name'
-      },
       'category': {
         id: 'category',
         name: 'category',
@@ -249,32 +308,33 @@ class AssetFieldManager {
       'subCategory': {
         id: 'sub-category',
         name: 'subCategory',
-        type: 'text',
+        type: 'select',
         label: 'Sub Category',
         description: 'Asset sub-category',
         required: false,
         included: true,
-        placeholder: 'Enter sub-category'
+        options: ['Laptop', 'Desktop', 'Monitor', 'Printer', 'Server', 'Network Switch', 'Router', 'Tablet', 'Phone', 'Other'],
+        placeholder: 'Select sub-category'
       },
       'location': {
         id: 'location',
         name: 'location',
-        type: 'text',
+        type: 'select',
         label: 'Location',
         description: 'Physical location of the asset',
         required: false,
         included: true,
-        placeholder: 'Enter location'
+        placeholder: 'Select location'
       },
       'site': {
         id: 'site',
         name: 'site',
-        type: 'text',
+        type: 'select',
         label: 'Site',
         description: 'Site where asset is located',
         required: false,
         included: true,
-        placeholder: 'Enter site'
+        placeholder: 'Select site'
       },
       'status': {
         id: 'status',
@@ -284,7 +344,7 @@ class AssetFieldManager {
         description: 'Current status of the asset',
         required: false,
         included: true,
-        options: ['Available', 'In Use', 'Maintenance', 'Disposed'],
+        options: ['Available', 'Check Out', 'Move', 'Reserve', 'Lease', 'Dispose', 'Maintenance'],
         placeholder: 'Select status'
       },
       'dateAcquired': {
@@ -300,22 +360,22 @@ class AssetFieldManager {
       'assignedTo': {
         id: 'assigned-to',
         name: 'assignedTo',
-        type: 'text',
-        label: 'Assigned To',
-        description: 'Person or department assigned to the asset',
+        type: 'select',
+        label: 'Issued To',
+        description: 'Person or department the asset is issued to',
         required: false,
         included: true,
-        placeholder: 'Enter assigned person/department'
+        placeholder: 'Select person/department'
       },
       'department': {
         id: 'department',
         name: 'department',
-        type: 'text',
+        type: 'select',
         label: 'Department',
         description: 'Department responsible for the asset',
         required: false,
         included: true,
-        placeholder: 'Enter department'
+        placeholder: 'Select department'
       },
       'notes': {
         id: 'notes',
@@ -326,26 +386,6 @@ class AssetFieldManager {
         required: false,
         included: true,
         placeholder: 'Enter notes'
-      },
-      'additionalInformation': {
-        id: 'additional-information',
-        name: 'additionalInformation',
-        type: 'textarea',
-        label: 'Additional Information',
-        description: 'Additional information about the asset',
-        required: false,
-        included: true,
-        placeholder: 'Enter additional information'
-      },
-      'auditedApril2021': {
-        id: 'audited-april-2021',
-        name: 'auditedApril2021',
-        type: 'text',
-        label: 'Audited April 2021',
-        description: 'Audit status for April 2021',
-        required: false,
-        included: true,
-        placeholder: 'Enter audit status'
       },
       'assetType': {
         id: 'asset-type',
@@ -358,38 +398,6 @@ class AssetFieldManager {
         options: ['IT ASSETS', 'NON-IT ASSETS'],
         placeholder: 'Select asset type'
       },
-      'depreciableAsset': {
-        id: 'depreciable-asset',
-        name: 'depreciableAsset',
-        type: 'select',
-        label: 'Depreciable Asset',
-        description: 'Whether the asset is depreciable',
-        required: false,
-        included: true,
-        options: ['Yes', 'No'],
-        placeholder: 'Select if depreciable'
-      },
-      'salvageValue': {
-        id: 'salvage-value',
-        name: 'salvageValue',
-        type: 'number',
-        label: 'Salvage Value',
-        description: 'Salvage value of the asset',
-        required: false,
-        included: true,
-        placeholder: 'Enter salvage value'
-      },
-      'depreciationMethod': {
-        id: 'depreciation-method',
-        name: 'depreciationMethod',
-        type: 'select',
-        label: 'Depreciation Method',
-        description: 'Method used for depreciation',
-        required: false,
-        included: true,
-        options: ['Straight Line', 'Declining Balance', 'Sum of Years'],
-        placeholder: 'Select depreciation method'
-      }
     }
     
     return fieldConfigs[fieldName] || null
@@ -398,22 +406,18 @@ class AssetFieldManager {
   // Get data type for imported field
   private getDataTypeForField(fieldName: string): string {
     const dataTypeMap: Record<string, string> = {
-      'name': 'Text',
+      'serialNumber': 'Text',
       'category': 'Dropdown list',
-      'subCategory': 'Text',
-      'location': 'Text',
-      'site': 'Text',
+      'subCategory': 'Dropdown list',
+      'location': 'Dropdown list',
+      'site': 'Dropdown list',
       'status': 'Dropdown list',
       'dateAcquired': 'Date',
-      'assignedTo': 'Text',
-      'department': 'Text',
+      'assignedTo': 'Dropdown list',
+      'department': 'Dropdown list',
       'notes': 'Text',
-      'additionalInformation': 'Text',
-      'auditedApril2021': 'Text',
       'assetType': 'Dropdown list',
-      'depreciableAsset': 'Dropdown list',
-      'salvageValue': 'Numeric',
-      'depreciationMethod': 'Dropdown list'
+      'image': 'File upload'
     }
     
     return dataTypeMap[fieldName] || 'Text'
@@ -422,6 +426,11 @@ class AssetFieldManager {
   // Get all fields
   getFields(): AnyAssetField[] {
     return [...this.fields]
+  }
+
+  // Get all fields
+  getAllFields(): AnyAssetField[] {
+    return this.fields
   }
 
   // Get only included fields (for form generation)
@@ -438,7 +447,7 @@ class AssetFieldManager {
   updateField(fieldId: string, updates: Partial<AnyAssetField>): void {
     const fieldIndex = this.fields.findIndex(field => field.id === fieldId)
     if (fieldIndex !== -1) {
-      this.fields[fieldIndex] = { ...this.fields[fieldIndex], ...updates }
+      this.fields[fieldIndex] = { ...this.fields[fieldIndex], ...updates } as AnyAssetField
       this.saveFields()
     }
   }
@@ -499,6 +508,33 @@ class AssetFieldManager {
       localStorage.removeItem('asset-fields-config')
     }
     this.initializeDefaultFields()
+  }
+
+  // Force reset and reload fields (useful for development)
+  forceReset(): void {
+    this.fields = []
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('asset-fields-config')
+    }
+    this.initializeDefaultFields()
+    console.log('Asset fields reset successfully - Supabase migration')
+  }
+
+  // Ensure image field is always included
+  ensureImageField(): void {
+    const hasImageField = this.fields.some(field => field.name === 'image')
+    if (!hasImageField) {
+      const imageFieldConfig = this.getDefaultFieldConfig('image')
+      if (imageFieldConfig) {
+        const imageField: StandardAssetField = {
+          ...imageFieldConfig,
+          isStandard: true
+        }
+        this.fields.push(imageField)
+        this.saveFields()
+        console.log('Image field added to fields')
+      }
+    }
   }
 
   // Reset to include imported data

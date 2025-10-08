@@ -6,7 +6,9 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
-import { getAllAssets } from "@/lib/centralized-assets"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
+import { useUpdateAsset } from "@/hooks/use-assets-query"
+import { setupDataManager } from "@/lib/setup-data"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -38,8 +40,13 @@ import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
 
-// Use centralized asset data
-const mockAvailableAssets = getAllAssets()
+// Get available assets for disposal (exclude already disposed assets)
+const getAvailableAssets = (assets: any[]) => {
+  return assets.filter(asset => 
+    asset.status !== "Dispose" && 
+    asset.status !== "Maintenance"
+  )
+}
 
 // Form validation schema
 const disposeFormSchema = z.object({
@@ -62,8 +69,14 @@ type DisposeFormValues = z.infer<typeof disposeFormSchema>
 
 export default function DisposeAssetPage() {
   const router = useRouter()
+  const { data: assets = [], isLoading, error } = useInstantAssets()
+  const updateAssetMutation = useUpdateAsset()
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedAssets, setSelectedAssets] = useState<string[]>([])
   const [assetSearch, setAssetSearch] = useState("")
+
+  // Get real data
+  const availableAssets = getAvailableAssets(assets)
 
   const form = useForm<DisposeFormValues>({
     resolver: zodResolver(disposeFormSchema),
@@ -83,9 +96,9 @@ export default function DisposeAssetPage() {
   const disposalMethod = form.watch("disposalMethod")
 
   // Filter assets based on search
-  const filteredAssets = mockAvailableAssets.filter(asset =>
+  const filteredAssets = availableAssets.filter(asset =>
     asset.id.toLowerCase().includes(assetSearch.toLowerCase()) ||
-    asset.name.toLowerCase().includes(assetSearch.toLowerCase())
+    (asset.name || '').toLowerCase().includes(assetSearch.toLowerCase())
   )
 
   // Add asset to selection
@@ -107,18 +120,74 @@ export default function DisposeAssetPage() {
 
   // Get selected asset details
   const getSelectedAssetDetails = () => {
-    return selectedAssets.map(id => mockAvailableAssets.find(asset => asset.id === id)).filter(Boolean)
+    return selectedAssets.map(id => availableAssets.find(asset => asset.id === id)).filter(Boolean)
   }
 
   // Calculate total asset value
   const getTotalAssetValue = () => {
-    return getSelectedAssetDetails().reduce((sum, asset) => sum + asset!.value, 0)
+    return getSelectedAssetDetails().reduce((sum, asset) => sum + (asset!.value || 0), 0)
   }
 
-  const onSubmit = (data: DisposeFormValues) => {
-    console.log("Dispose Asset Data:", data)
-    toast.success("Assets disposed successfully!")
-    router.push("/assets")
+  const onSubmit = async (data: DisposeFormValues) => {
+    if (selectedAssets.length === 0) {
+      toast.error("No assets selected", {
+        description: "Please add at least one asset to dispose",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    
+    try {
+      let successCount = 0
+      let failedCount = 0
+      
+      // Update each selected asset
+      for (const assetId of selectedAssets) {
+        try {
+          const disposalNote = `[DISPOSE ${format(data.disposalDate, "yyyy-MM-dd")}] Method: ${data.disposalMethod} | Reason: ${data.disposalReason} | Value: $${data.disposalValue}${data.buyerRecipient ? ` | ${disposalMethod === "sold" ? "Buyer" : "Recipient"}: ${data.buyerRecipient}` : ''}${data.disposalLocation ? ` | Location: ${data.disposalLocation}` : ''}${data.disposalCertificate ? ` | Certificate: ${data.disposalCertificate}` : ''}${data.notes ? ` | Notes: ${data.notes}` : ''}`
+          
+          const updateData = {
+            status: "Dispose" as const,
+            notes: disposalNote
+          }
+          
+          const result = await updateAssetMutation.mutateAsync({ id: assetId, updates: updateData })
+          if (result.success) {
+            successCount++
+          } else {
+            failedCount++
+          }
+        } catch (error) {
+          console.error(`Failed to dispose asset ${assetId}:`, error)
+          failedCount++
+        }
+      }
+
+      if (successCount > 0) {
+        const totalValue = getSelectedAssetDetails().reduce((sum, asset) => sum + (asset!.value || 0), 0)
+        toast.success(`Successfully disposed ${successCount} asset${successCount !== 1 ? 's' : ''}`, {
+          description: `Total value: ₱${totalValue.toLocaleString()}${failedCount > 0 ? ` (${failedCount} failed)` : ''}`,
+        })
+        
+        // Redirect to assets page after successful disposal
+        setTimeout(() => {
+          router.push("/assets")
+        }, 1500)
+      } else {
+        toast.error("Failed to dispose assets", {
+          description: "No assets could be disposed. Please try again.",
+        })
+      }
+    } catch (error) {
+      console.error("Error disposing assets:", error)
+      toast.error("Failed to dispose assets", {
+        description: "Please try again or contact support if the issue persists.",
+        duration: 4000,
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -183,6 +252,64 @@ export default function DisposeAssetPage() {
             </div>
           </div>
 
+          {/* Dispose Asset Overview */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card className="group hover:shadow-lg hover:shadow-red-500/20 hover:scale-[1.02] transition-all duration-200 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-red-100 dark:bg-red-900 mr-3 group-hover:bg-red-200 dark:group-hover:bg-red-800 transition-colors duration-200">
+                  <Package className="h-5 w-5 text-red-600 dark:text-red-400 group-hover:text-red-700 dark:group-hover:text-red-300 transition-colors duration-200" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-red-600 dark:group-hover:text-red-400 transition-colors duration-200">Available Assets</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600 dark:text-red-400 group-hover:text-red-700 dark:group-hover:text-red-300 transition-colors duration-200">
+                  {availableAssets.length}
+                </div>
+                <p className="text-xs text-muted-foreground group-hover:text-red-500 dark:group-hover:text-red-400 transition-colors duration-200">
+                  Assets available for disposal
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card className="group hover:shadow-lg hover:shadow-orange-500/20 hover:scale-[1.02] transition-all duration-200 ease-in-out cursor-pointer">
+              <CardHeader className="flex flex-row items-center space-y-0 pb-2">
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-orange-100 dark:bg-orange-900 mr-3 group-hover:bg-orange-200 dark:group-hover:bg-orange-800 transition-colors duration-200">
+                  <DollarSign className="h-5 w-5 text-orange-600 dark:text-orange-400 group-hover:text-orange-700 dark:group-hover:text-orange-300 transition-colors duration-200" />
+                </div>
+                <div className="flex-1">
+                  <CardTitle className="text-sm font-medium group-hover:text-orange-600 dark:group-hover:text-orange-400 transition-colors duration-200">Total Asset Value</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-orange-600 dark:text-orange-400 group-hover:text-orange-700 dark:group-hover:text-orange-300 transition-colors duration-200">
+                  ₱{(availableAssets.reduce((sum, asset) => sum + (asset.value || 0), 0)).toLocaleString()}
+                </div>
+                <p className="text-xs text-muted-foreground group-hover:text-orange-500 dark:group-hover:text-orange-400 transition-colors duration-200">
+                  Combined value of available assets
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+                <p className="text-muted-foreground">Loading assets from database...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="text-red-500 mb-4">⚠️</div>
+                <p className="text-red-600 font-medium">Failed to load assets</p>
+                <p className="text-muted-foreground text-sm mt-2">{error instanceof Error ? error.message : "Failed to load assets"}</p>
+              </div>
+            </div>
+          ) : (
+
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               {/* Asset Selection */}
@@ -217,12 +344,12 @@ export default function DisposeAssetPage() {
                                 onClick={() => addAsset(asset.id)}
                               >
                                 <div>
-                                  <div className="font-medium">{asset.id} - {asset.name}</div>
+                                  <div className="font-medium">{asset.id} - {asset.name || 'Unnamed Asset'}</div>
                                   <div className="text-sm text-muted-foreground">
-                                    {asset.category} • {asset.location} • ₱{asset.value.toLocaleString()}
+                                    {asset.category || 'Uncategorized'} • {asset.location || 'No location'} • ₱{asset.value?.toLocaleString() || '0'}
                                   </div>
                                   <div className="text-xs text-muted-foreground">
-                                    Purchased: {format(new Date(asset.purchaseDate), "MMM dd, yyyy")}
+                                    {asset.purchaseDate ? `Purchased: ${format(new Date(asset.purchaseDate), "MMM dd, yyyy")}` : 'No purchase date'}
                                   </div>
                                 </div>
                                 <Plus className="h-4 w-4" />
@@ -268,12 +395,12 @@ export default function DisposeAssetPage() {
                         {getSelectedAssetDetails().map((asset) => (
                           <div key={asset!.id} className="flex items-center justify-between p-3 border rounded-md border-destructive/20 bg-destructive/5">
                             <div>
-                              <div className="font-medium">{asset!.id} - {asset!.name}</div>
+                              <div className="font-medium">{asset!.id} - {asset!.name || 'Unnamed Asset'}</div>
                               <div className="text-sm text-muted-foreground">
-                                {asset!.category} • {asset!.location} • ₱{asset!.value.toLocaleString()}
+                                {asset!.category || 'Uncategorized'} • {asset!.location || 'No location'} • ₱{asset!.value?.toLocaleString() || '0'}
                               </div>
                               <div className="text-xs text-muted-foreground">
-                                Purchased: {format(new Date(asset!.purchaseDate), "MMM dd, yyyy")}
+                                {asset!.purchaseDate ? `Purchased: ${format(new Date(asset!.purchaseDate), "MMM dd, yyyy")}` : 'No purchase date'}
                               </div>
                             </div>
                             <Button
@@ -580,12 +707,20 @@ export default function DisposeAssetPage() {
                 >
                   Cancel
                 </Button>
-                <Button type="submit" variant="destructive">
-                  Dispose Assets
+                <Button type="submit" variant="destructive" disabled={isSubmitting}>
+                  {isSubmitting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Disposing Assets...
+                    </>
+                  ) : (
+                    "Dispose Assets"
+                  )}
                 </Button>
               </div>
             </form>
           </Form>
+          )}
         </div>
       </SidebarInset>
     </SidebarProvider>

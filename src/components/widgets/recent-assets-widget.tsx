@@ -1,15 +1,26 @@
 "use client"
 
+import * as React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { mockRecentAssets } from "@/lib/dashboard-data"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
 import { Package, Eye } from "lucide-react"
 import Link from "next/link"
 
 export function RecentAssetsWidget() {
+  const { data: assets = [], isLoading } = useInstantAssets()
+  
+  const recentAssets = React.useMemo(() => {
+    if (isLoading) return []
+    
+    return assets
+      .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+      .slice(0, 3)
+  }, [assets, isLoading])
+
   return (
     <Card className="hover:shadow-md transition-all duration-300 ease-in-out">
       <CardHeader>
@@ -24,7 +35,7 @@ export function RecentAssetsWidget() {
       <CardContent>
         <ScrollArea className="h-[180px] sm:h-[200px]">
           <div className="space-y-2 sm:space-y-3 pr-2 sm:pr-4">
-            {mockRecentAssets.slice(0, 3).map((asset, index) => (
+            {recentAssets.map((asset, index) => (
               <div key={asset.id}>
                 <div className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors">
                   <div className="flex-1 min-w-0">
@@ -36,7 +47,7 @@ export function RecentAssetsWidget() {
                   </div>
                   <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
                     <Badge 
-                      variant={asset.status === 'In Use' ? 'default' : asset.status === 'Available' ? 'secondary' : 'destructive'}
+                      variant={asset.status === 'Check Out' ? 'default' : asset.status === 'Available' ? 'secondary' : 'destructive'}
                       className="text-xs"
                     >
                       {asset.status}

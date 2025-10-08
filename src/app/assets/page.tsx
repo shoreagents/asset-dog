@@ -1,7 +1,9 @@
 ﻿"use client"
 
 import * as React from "react"
-import { DataManager, Asset } from "@/lib/lists-data"
+import { Asset } from "@/lib/lists-data"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
+import { useUpdateAsset } from "@/hooks/use-assets-query"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -51,11 +53,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X } from "lucide-react"
+import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X, Image as ImageIcon } from "lucide-react"
 import Link from "next/link"
 
-// Use DataManager for real asset data
-const dataManager = DataManager.getInstance()
+// Use useAssets hook for Supabase integration
 
 const statusColors = {
   "Available": "bg-green-100 text-green-800 border-green-200",
@@ -116,8 +117,8 @@ const mockPersons = {
 }
 
 export default function AssetsPage() {
-  const [assets, setAssets] = React.useState<Asset[]>([])
-  const [isLoading, setIsLoading] = React.useState(true)
+  const { data: assets = [], isLoading, error } = useInstantAssets()
+  const updateAssetMutation = useUpdateAsset()
   const [searchTerm, setSearchTerm] = React.useState("")
   const [categoryFilter, setCategoryFilter] = React.useState("all")
   const [statusFilter, setStatusFilter] = React.useState("all")
@@ -166,33 +167,24 @@ export default function AssetsPage() {
   }
 
 
-  // Load assets on component mount
-  React.useEffect(() => {
-    const loadAssets = () => {
-      try {
-        const loadedAssets = dataManager.getAssets()
-        setAssets(loadedAssets)
-        setIsLoading(false)
-      } catch (error) {
-        console.error('Failed to load assets:', error)
-        setIsLoading(false)
-      }
-    }
+  // Assets are now loaded via useAssets hook
 
-    loadAssets()
-  }, [])
-
-  // Get unique categories and statuses for filters, filtering out empty values
+  // Get unique categories for filters, filtering out empty values
   const categories = Array.from(new Set(assets.map(asset => asset.category).filter(category => category && category.trim() !== '')))
+  
+  // Define all possible statuses
+  const allStatuses = ['Available', 'Check Out', 'Move', 'Reserve', 'Lease', 'Dispose', 'Maintenance']
+  
+  // Get unique statuses from assets, but include all possible statuses in the filter
   const statuses = Array.from(new Set(assets.map(asset => asset.status).filter(status => status && status.trim() !== '')))
 
   // Filter and sort assets
   const filteredAssets = React.useMemo(() => {
     const filtered = assets.filter(asset => {
       const matchesSearch = 
-        asset.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        asset.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (asset.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (asset.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (asset.location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (asset.assignedTo && asset.assignedTo.toLowerCase().includes(searchTerm.toLowerCase()))
 
       const matchesCategory = categoryFilter === "all" || (asset.category && asset.category.trim() !== '' && asset.category === categoryFilter)
@@ -273,20 +265,20 @@ export default function AssetsPage() {
     setShowSaveConfirmation(true)
   }
 
-  const confirmSaveEdit = () => {
+  const confirmSaveEdit = async () => {
     if (editedAsset) {
-      // Update the asset in the data manager
-      dataManager.updateAsset(editedAsset.id, editedAsset)
-      
-      // Update the local state
-      setAssets(prev => prev.map(asset => 
-        asset.id === editedAsset.id ? editedAsset : asset
-      ))
-      
-      // Update the selected asset
-      setSelectedAsset(editedAsset)
-      setIsEditing(false)
-      setShowSaveConfirmation(false)
+      try {
+        // Update the asset in Supabase
+        await updateAssetMutation.mutateAsync({ id: editedAsset.id, updates: editedAsset })
+        
+        // Update the selected asset
+        setSelectedAsset(editedAsset)
+        setIsEditing(false)
+        setShowSaveConfirmation(false)
+      } catch (error) {
+        console.error('Failed to update asset:', error)
+        // You could add a toast notification here
+      }
     }
   }
 
@@ -348,7 +340,15 @@ export default function AssetsPage() {
             <div className="flex items-center justify-center h-64 p-4">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-                <p className="text-muted-foreground">Loading assets...</p>
+                <p className="text-muted-foreground">Loading assets from database...</p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex items-center justify-center h-64 p-4">
+              <div className="text-center">
+                <div className="text-red-500 mb-4">⚠️</div>
+                <p className="text-red-600 font-medium">Failed to load assets</p>
+                <p className="text-muted-foreground text-sm mt-2">{error instanceof Error ? error.message : "Failed to load assets"}</p>
               </div>
             </div>
           ) : (
@@ -435,15 +435,15 @@ export default function AssetsPage() {
                     <User className="h-5 w-5 text-blue-500 group-hover:text-blue-500/80 transition-colors duration-300" />
                   </div>
                   <div className="flex-1">
-                    <CardTitle className="text-sm font-medium group-hover:text-blue-500 transition-colors duration-300">In Use</CardTitle>
+                    <CardTitle className="text-sm font-medium group-hover:text-blue-500 transition-colors duration-300">Check Out</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold mb-1 group-hover:text-blue-500 transition-colors duration-300">
-                    {assets.filter(a => a.status === "In Use").length}
+                    {assets.filter(a => a.status === "Check Out").length}
                   </div>
                   <p className="text-xs text-muted-foreground group-hover:text-blue-500/70 transition-colors duration-300">
-                    {assets.length > 0 ? Math.round((assets.filter(a => a.status === "In Use").length / assets.length) * 100) : 0}% utilization
+                    {assets.length > 0 ? Math.round((assets.filter(a => a.status === "Check Out").length / assets.length) * 100) : 0}% utilization
                   </p>
                 </CardContent>
               </Card>
@@ -458,7 +458,7 @@ export default function AssetsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold mb-1 group-hover:text-yellow-500 transition-colors duration-300">
-                    ₱{assets.filter(asset => asset.status !== 'Disposed').reduce((sum, asset) => sum + asset.value, 0).toLocaleString()}
+                    ₱{assets.filter(asset => asset.status !== 'Dispose').reduce((sum, asset) => sum + asset.value, 0).toLocaleString()}
                   </div>
                   <p className="text-xs text-muted-foreground group-hover:text-yellow-500/70 transition-colors duration-300">
                     Active asset portfolio value (excluding disposed)
@@ -552,7 +552,7 @@ export default function AssetsPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="all">All Statuses</SelectItem>
-                          {statuses.map(status => (
+                          {allStatuses.map(status => (
                             <SelectItem key={status} value={status}>
                               {status}
                             </SelectItem>
@@ -866,7 +866,7 @@ export default function AssetsPage() {
                                   </div>
                                   
                                   {/* Action Button */}
-                                  {asset.status === "In Use" && (
+                                  {asset.status === "Check Out" && (
                                     <div className="flex justify-end pt-1 sm:pt-2">
                                       <Link href={`/assets/checkin/${asset.id}`}>
                                         <Button size="sm" variant="outline" onClick={() => setIsPersonModalOpen(false)} className="text-xs sm:text-sm px-2 py-1 sm:px-3 sm:py-2">
@@ -951,6 +951,55 @@ export default function AssetsPage() {
             <div className="flex-1 min-h-0">
               <ScrollArea className="h-full px-6 py-4">
                 <div className="space-y-4 pb-4">
+                  {/* Asset Image */}
+                  <Card className="border shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <div className="p-1 bg-purple-100 rounded">
+                          <ImageIcon className="h-3 w-3 text-purple-600" />
+                        </div>
+                        Asset Image
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="flex justify-center">
+                          {selectedAsset.imageUrl ? (
+                            <img
+                              src={selectedAsset.imageUrl}
+                              alt={selectedAsset.name}
+                              className="max-w-full max-h-64 object-contain rounded-lg border shadow-sm"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                target.style.display = 'none';
+                                const parent = target.parentElement;
+                                if (parent) {
+                                  parent.innerHTML = `
+                                    <div class="flex flex-col items-center justify-center p-8 text-muted-foreground">
+                                      <ImageIcon class="h-12 w-12 mb-2 opacity-50" />
+                                      <p class="text-sm">Image not available</p>
+                                    </div>
+                                  `;
+                                }
+                              }}
+                            />
+                          ) : selectedAsset.imageFileName ? (
+                            <div className="flex flex-col items-center justify-center p-8 text-muted-foreground border-2 border-dashed rounded-lg">
+                              <ImageIcon className="h-12 w-12 mb-2 opacity-50" />
+                              <p className="text-sm font-medium">{selectedAsset.imageFileName}</p>
+                              <p className="text-xs text-muted-foreground mt-1">Image file uploaded</p>
+                              <p className="text-xs text-muted-foreground mt-2">Click Edit to add image URL</p>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center p-8 text-muted-foreground border-2 border-dashed rounded-lg">
+                              <ImageIcon className="h-12 w-12 mb-2 opacity-50" />
+                              <p className="text-sm">No image data found</p>
+                              <p className="text-xs text-muted-foreground mt-1">Add image during asset creation or edit</p>
+                            </div>
+                          )}
+                        </div>
+                    </CardContent>
+                  </Card>
+
                   {/* Basic Information */}
                   <Card className="border shadow-sm">
                     <CardHeader className="pb-3">
@@ -1201,6 +1250,32 @@ export default function AssetsPage() {
                             />
                           ) : (
                             <p className="text-sm">{selectedAsset.purchasedFrom || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Image URL</p>
+                          {isEditing ? (
+                            <Input
+                              value={editedAsset?.imageUrl || ''}
+                              onChange={(e) => handleFieldChange('imageUrl', e.target.value)}
+                              className="text-sm h-8"
+                              placeholder="Enter image URL"
+                            />
+                          ) : (
+                            <p className="text-sm">{selectedAsset.imageUrl || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Image File</p>
+                          {isEditing ? (
+                            <Input
+                              value={editedAsset?.imageFileName || ''}
+                              onChange={(e) => handleFieldChange('imageFileName', e.target.value)}
+                              className="text-sm h-8"
+                              placeholder="Image file name"
+                            />
+                          ) : (
+                            <p className="text-sm">{selectedAsset.imageFileName || 'N/A'}</p>
                           )}
                         </div>
                       </div>

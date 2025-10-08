@@ -3,7 +3,7 @@ import { Asset } from './imported-asset'
 import { IMPORTED_ASSETS } from './imported-data'
 
 // Re-export the comprehensive Asset interface from imported-asset
-export { Asset } from './imported-asset'
+export type { Asset } from './imported-asset'
 
 export interface Maintenance {
   id: string
@@ -56,42 +56,44 @@ export class DataManager {
   }
 
   private loadInitialData() {
-    // Use imported data as the primary source of truth
-    this.assets = [...IMPORTED_ASSETS]
-    this.maintenances = this.getDefaultMaintenances()
-    this.warranties = this.getDefaultWarranties()
-    
-    // Load additional data from localStorage if available (for maintenances and warranties)
+    // Clear all localStorage data for Supabase migration
     if (typeof window !== 'undefined') {
       try {
-        const savedMaintenances = localStorage.getItem('asset-dog-maintenances')
-        const savedWarranties = localStorage.getItem('asset-dog-warranties')
-
-        if (savedMaintenances) {
-          this.maintenances = JSON.parse(savedMaintenances)
-        }
-        if (savedWarranties) {
-          this.warranties = JSON.parse(savedWarranties)
-        }
+        localStorage.removeItem('asset-dog-maintenances')
+        localStorage.removeItem('asset-dog-warranties')
+        localStorage.removeItem('asset-dog-additional-assets')
+        localStorage.removeItem('asset-fields-config')
+        localStorage.removeItem('dashboard-widgets')
+        console.log('Cleared all localStorage data for Supabase migration')
       } catch (error) {
-        console.warn('Failed to load additional data from localStorage:', error)
+        console.warn('Failed to clear localStorage:', error)
       }
     }
+    
+    // Initialize with empty arrays - data will come from Supabase
+    this.assets = []
+    this.maintenances = []
+    this.warranties = []
   }
 
   private convertCentralizedAssets(): Asset[] {
     return CENTRALIZED_ASSETS.map(assetData => ({
       id: assetData.id,
       name: assetData.name,
+      description: assetData.name || '',
       category: assetData.category,
+      subCategory: '',
       location: assetData.location,
+      site: '',
       status: assetData.status,
       value: assetData.value,
       purchaseDate: assetData.purchaseDate,
+      dateAcquired: assetData.purchaseDate,
       assignedTo: assetData.assignedTo,
       department: assetData.department,
-      serialNumber: assetData.serialNumber,
-      model: assetData.model,
+      brand: '',
+      model: assetData.model || '',
+      serialNumber: assetData.serialNumber || '',
       manufacturer: assetData.manufacturer,
       notes: assetData.notes
     }))
@@ -141,169 +143,51 @@ export class DataManager {
     }
   }
 
-  // Asset methods - always get fresh data from imported assets
+  // Asset methods - now using Supabase instead of localStorage
   getAssets(): Asset[] {
-    // Apply data corrections to imported assets
-    this.assets = IMPORTED_ASSETS.map(asset => this.correctAssetData(asset))
-    
-    // Also include additional assets from localStorage, but ensure no duplicates
-    if (typeof window !== 'undefined') {
-      try {
-        const additionalAssets = JSON.parse(localStorage.getItem('asset-dog-additional-assets') || '[]')
-        const importedIds = new Set(IMPORTED_ASSETS.map(asset => asset.id))
-        const uniqueAdditionalAssets = additionalAssets.filter((asset: Asset) => !importedIds.has(asset.id))
-        this.assets = [...this.assets, ...uniqueAdditionalAssets]
-      } catch (error) {
-        console.warn('Failed to load additional assets:', error)
-      }
-    }
-    
-    // Remove duplicate assets based on multiple criteria
-    const seenAssets = new Map<string, Asset>()
-    const duplicatesRemoved: string[] = []
-    
-    this.assets = this.assets.filter((asset) => {
-      // Create a unique key based on multiple fields to catch true duplicates
-      const uniqueKey = `${asset.id}_${asset.name}_${asset.brand}_${asset.model}_${asset.serialNumber}`
-      
-      if (seenAssets.has(uniqueKey)) {
-        duplicatesRemoved.push(`${asset.id} (${asset.name})`)
-        return false
-      }
-      seenAssets.set(uniqueKey, asset)
-      return true
-    })
-    
-    if (duplicatesRemoved.length > 0) {
-      console.warn(`Removed ${duplicatesRemoved.length} duplicate assets:`, duplicatesRemoved)
-    }
-    
-    return [...this.assets]
+    // Return empty array - assets will be loaded from Supabase
+    console.log('getAssets called - returning empty array (Supabase migration)')
+    return []
   }
 
   getAsset(id: string): Asset | undefined {
-    // Apply same deduplication logic as in getAssets
-    const correctedAssets = IMPORTED_ASSETS.map(asset => this.correctAssetData(asset))
-    
-    // Include additional assets from localStorage
-    let allAssets = [...correctedAssets]
-    if (typeof window !== 'undefined') {
-      try {
-        const additionalAssets = JSON.parse(localStorage.getItem('asset-dog-additional-assets') || '[]')
-        const importedIds = new Set(IMPORTED_ASSETS.map(asset => asset.id))
-        const uniqueAdditionalAssets = additionalAssets.filter((asset: Asset) => !importedIds.has(asset.id))
-        allAssets = [...allAssets, ...uniqueAdditionalAssets]
-      } catch (error) {
-        console.warn('Failed to load additional assets:', error)
-      }
-    }
-    
-    // Remove duplicates and find the asset (same logic as getAssets)
-    const seenAssets = new Map<string, Asset>()
-    const deduplicatedAssets = allAssets.filter((asset) => {
-      const uniqueKey = `${asset.id}_${asset.name}_${asset.brand}_${asset.model}_${asset.serialNumber}`
-      
-      if (seenAssets.has(uniqueKey)) {
-        return false
-      }
-      seenAssets.set(uniqueKey, asset)
-      return true
-    })
-    
-    return deduplicatedAssets.find(asset => asset.id === id)
+    // Return undefined - assets will be loaded from Supabase
+    console.log('getAsset called - returning undefined (Supabase migration)')
+    return undefined
   }
 
   addAsset(asset: Omit<Asset, 'id'>): Asset {
-    // For now, we'll just return the asset with a generated ID
-    // In a real application, this would make an API call to add to the centralized system
+    // Return asset with generated ID - will be saved to Supabase
     const newAsset: Asset = {
       ...asset,
       id: this.generateId()
     }
     
-    // Store in localStorage for persistence until next page load
-    if (typeof window !== 'undefined') {
-      try {
-        const additionalAssets = JSON.parse(localStorage.getItem('asset-dog-additional-assets') || '[]')
-        additionalAssets.push(newAsset)
-        localStorage.setItem('asset-dog-additional-assets', JSON.stringify(additionalAssets))
-      } catch (error) {
-        console.warn('Failed to save additional asset:', error)
-      }
-    }
-    
+    console.log('addAsset called - asset will be saved to Supabase:', newAsset)
     return newAsset
   }
 
   updateAsset(id: string, updates: Partial<Asset>): Asset | null {
-    // Check centralized assets first
-    this.assets = this.convertCentralizedAssets()
-    const centralizedAsset = this.assets.find(asset => asset.id === id)
-    
-    if (centralizedAsset) {
-      // For centralized assets, we can't directly modify them
-      // In a real application, this would make an API call
-      console.warn('Cannot modify centralized asset directly. This would require an API call.')
-      return null
-    }
-    
-    // Check additional assets in localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const additionalAssets = JSON.parse(localStorage.getItem('asset-dog-additional-assets') || '[]')
-        const index = additionalAssets.findIndex((asset: Asset) => asset.id === id)
-        
-        if (index !== -1) {
-          additionalAssets[index] = { ...additionalAssets[index], ...updates }
-          localStorage.setItem('asset-dog-additional-assets', JSON.stringify(additionalAssets))
-          return additionalAssets[index]
-        }
-      } catch (error) {
-        console.warn('Failed to update additional asset:', error)
-      }
-    }
-    
+    // Asset updates will be handled by Supabase
+    console.log('updateAsset called - will be handled by Supabase:', { id, updates })
     return null
   }
 
   deleteAsset(id: string): boolean {
-    // Check centralized assets first
-    this.assets = this.convertCentralizedAssets()
-    const centralizedAsset = this.assets.find(asset => asset.id === id)
-    
-    if (centralizedAsset) {
-      // For centralized assets, we can't directly delete them
-      // In a real application, this would make an API call
-      console.warn('Cannot delete centralized asset directly. This would require an API call.')
-      return false
-    }
-    
-    // Check additional assets in localStorage
-    if (typeof window !== 'undefined') {
-      try {
-        const additionalAssets = JSON.parse(localStorage.getItem('asset-dog-additional-assets') || '[]')
-        const index = additionalAssets.findIndex((asset: Asset) => asset.id === id)
-        
-        if (index !== -1) {
-          additionalAssets.splice(index, 1)
-          localStorage.setItem('asset-dog-additional-assets', JSON.stringify(additionalAssets))
-          return true
-        }
-      } catch (error) {
-        console.warn('Failed to delete additional asset:', error)
-      }
-    }
-    
+    // Asset deletion will be handled by Supabase
+    console.log('deleteAsset called - will be handled by Supabase:', id)
     return false
   }
 
-  // Maintenance methods
+  // Maintenance methods - now using Supabase
   getMaintenances(): Maintenance[] {
-    return [...this.maintenances]
+    console.log('getMaintenances called - returning empty array (Supabase migration)')
+    return []
   }
 
   getMaintenance(id: string): Maintenance | undefined {
-    return this.maintenances.find(maintenance => maintenance.id === id)
+    console.log('getMaintenance called - returning undefined (Supabase migration)')
+    return undefined
   }
 
   addMaintenance(maintenance: Omit<Maintenance, 'id'>): Maintenance {
@@ -311,36 +195,29 @@ export class DataManager {
       ...maintenance,
       id: this.generateId()
     }
-    this.maintenances.push(newMaintenance)
-    this.saveData()
+    console.log('addMaintenance called - will be saved to Supabase:', newMaintenance)
     return newMaintenance
   }
 
   updateMaintenance(id: string, updates: Partial<Maintenance>): Maintenance | null {
-    const index = this.maintenances.findIndex(maintenance => maintenance.id === id)
-    if (index === -1) return null
-    
-    this.maintenances[index] = { ...this.maintenances[index], ...updates }
-    this.saveData()
-    return this.maintenances[index]
+    console.log('updateMaintenance called - will be handled by Supabase:', { id, updates })
+    return null
   }
 
   deleteMaintenance(id: string): boolean {
-    const index = this.maintenances.findIndex(maintenance => maintenance.id === id)
-    if (index === -1) return false
-
-    this.maintenances.splice(index, 1)
-    this.saveData()
-    return true
+    console.log('deleteMaintenance called - will be handled by Supabase:', id)
+    return false
   }
 
-  // Warranty methods
+  // Warranty methods - now using Supabase
   getWarranties(): Warranty[] {
-    return [...this.warranties]
+    console.log('getWarranties called - returning empty array (Supabase migration)')
+    return []
   }
 
   getWarranty(id: string): Warranty | undefined {
-    return this.warranties.find(warranty => warranty.id === id)
+    console.log('getWarranty called - returning undefined (Supabase migration)')
+    return undefined
   }
 
   addWarranty(warranty: Omit<Warranty, 'id'>): Warranty {
@@ -348,27 +225,18 @@ export class DataManager {
       ...warranty,
       id: this.generateId()
     }
-    this.warranties.push(newWarranty)
-    this.saveData()
+    console.log('addWarranty called - will be saved to Supabase:', newWarranty)
     return newWarranty
   }
 
   updateWarranty(id: string, updates: Partial<Warranty>): Warranty | null {
-    const index = this.warranties.findIndex(warranty => warranty.id === id)
-    if (index === -1) return null
-    
-    this.warranties[index] = { ...this.warranties[index], ...updates }
-    this.saveData()
-    return this.warranties[index]
+    console.log('updateWarranty called - will be handled by Supabase:', { id, updates })
+    return null
   }
 
   deleteWarranty(id: string): boolean {
-    const index = this.warranties.findIndex(warranty => warranty.id === id)
-    if (index === -1) return false
-
-    this.warranties.splice(index, 1)
-    this.saveData()
-    return true
+    console.log('deleteWarranty called - will be handled by Supabase:', id)
+    return false
   }
 
   // Utility methods

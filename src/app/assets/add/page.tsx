@@ -13,10 +13,14 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Textarea } from "@/components/ui/textarea"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Alert } from "@/components/ui/alert"
+import { Label } from "@/components/ui/label"
 import {
   SidebarInset,
   SidebarProvider,
@@ -37,7 +41,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { CalendarIcon, ArrowLeft, Save } from "lucide-react"
+import { CalendarIcon, ArrowLeft, Save, Plus, X, Loader2, Upload, Image as ImageIcon } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useForm } from "react-hook-form"
@@ -47,6 +51,9 @@ import { toast } from "sonner"
 import { DataManager } from "@/lib/lists-data"
 import { setupDataManager } from "@/lib/setup-data"
 import AssetFieldManager, { AnyAssetField } from "@/lib/asset-field-manager"
+import { assetService, CreateAssetData } from "@/lib/asset-service"
+import { createAsset } from "@/lib/asset-api"
+import { validateAssetIdFormat, checkAssetIdExists, suggestAssetId } from "@/lib/asset-validation"
 
 // Dynamic form schema generator
 const createAssetFormSchema = (fields: AnyAssetField[]) => {
@@ -93,6 +100,9 @@ const createAssetFormSchema = (fields: AnyAssetField[]) => {
           fieldSchema = fieldSchema.optional()
         }
         break
+      case 'file':
+        fieldSchema = z.any().optional() // File objects are handled separately
+        break
       default:
         fieldSchema = field.required ? z.string().min(1, `${field.label} is required`) : z.string().optional()
     }
@@ -113,32 +123,328 @@ const manufacturers = setupDataManager.getManufacturers()
 export default function AddAssetPage() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [fields, setFields] = React.useState<AnyAssetField[]>([])
-  const [assetFormSchema, setAssetFormSchema] = React.useState<z.ZodObject<Record<string, z.ZodTypeAny>>>(z.object({}))
-  const [isLoading, setIsLoading] = React.useState(true)
-
+  
+  // Get field manager instance
   const fieldManager = AssetFieldManager.getInstance()
+  
+  // Get default fields for instant form display
+  const getDefaultFields = (): AnyAssetField[] => {
+    // Create default fields using the same structure as AssetFieldManager
+    const defaultFields: AnyAssetField[] = [
+      {
+        id: 'asset-tag-id',
+        name: 'assetTagId',
+        type: 'text',
+        label: 'Asset Tag ID',
+        description: 'Unique asset identifier',
+        required: true,
+        included: true,
+        example: 'PT2021-0994',
+        placeholder: 'Enter asset tag ID',
+        isStandard: true
+      },
+      {
+        id: 'asset-name',
+        name: 'name',
+        type: 'text',
+        label: 'Asset Name',
+        description: 'Name/title of the asset',
+        required: true,
+        included: true,
+        example: 'Dell Laptop XPS 13',
+        placeholder: 'Enter asset name',
+        isStandard: true
+      },
+      {
+        id: 'asset-description',
+        name: 'description',
+        type: 'textarea',
+        label: 'Asset Description',
+        description: 'Description of the asset',
+        required: true,
+        included: true,
+        example: 'SEE SUB-CATEGORY',
+        placeholder: 'Enter asset description',
+        isStandard: true
+      },
+      {
+        id: 'category',
+        name: 'category',
+        type: 'select',
+        label: 'Category',
+        description: 'Asset category',
+        required: false,
+        included: true,
+        options: ['COMPUTER - MAIN ITEMS', 'OFFICE FURNITURE', 'NETWORK DEVICE', 'FIRE EQUIPMENT', 'HARDWARE AND OFFICE ESSENTIALS', 'PHOTOGRAPHY AND VIDEOGRAPHY', 'COMMUNICATION AND WATCHES', 'OFFICE ELECTRONICS AND KITCHEN EQUIPMENT', 'COMPUTER ACCESSORIES'],
+        placeholder: 'Select category',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'sub-category',
+        name: 'subCategory',
+        type: 'select',
+        label: 'Sub Category',
+        description: 'Asset sub-category',
+        required: false,
+        included: true,
+        options: ['Laptop', 'Desktop', 'Monitor', 'Printer', 'Server', 'Network Switch', 'Router', 'Tablet', 'Phone', 'Other'],
+        placeholder: 'Select sub-category',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'location',
+        name: 'location',
+        type: 'select',
+        label: 'Location',
+        description: 'Current location of the asset',
+        required: false,
+        included: true,
+        options: ['Office A', 'Office B', 'Warehouse', 'Remote'],
+        placeholder: 'Select location',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'assignedTo',
+        name: 'assignedTo',
+        type: 'select',
+        label: 'Assigned To',
+        description: 'Person assigned to this asset',
+        required: false,
+        included: true,
+        options: ['John Doe', 'Jane Smith', 'Mike Johnson'],
+        placeholder: 'Select assigned person',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'purchase-date',
+        name: 'purchaseDate',
+        type: 'date',
+        label: 'Purchase Date',
+        description: 'Date asset was purchased',
+        required: false,
+        included: true,
+        example: '04/09/2021',
+        placeholder: 'Select purchase date',
+        isStandard: true
+      },
+      {
+        id: 'cost',
+        name: 'value',
+        type: 'number',
+        label: 'Cost',
+        description: 'Cost of the asset',
+        required: false,
+        included: true,
+        example: '18000',
+        placeholder: 'Enter cost',
+        validation: {
+          min: 0,
+          message: 'Cost must be a positive number'
+        },
+        isStandard: true
+      },
+      {
+        id: 'brand',
+        name: 'brand',
+        type: 'text',
+        label: 'Brand',
+        description: 'Manufacturer of the asset',
+        required: false,
+        included: true,
+        example: 'ARUBA',
+        placeholder: 'Enter brand name',
+        isStandard: true
+      },
+      {
+        id: 'serial-number',
+        name: 'serialNumber',
+        type: 'text',
+        label: 'Serial Number',
+        description: 'Unique serial number of the asset',
+        required: false,
+        included: true,
+        example: 'SN123456789',
+        placeholder: 'Enter serial number',
+        isStandard: true
+      },
+      {
+        id: 'model',
+        name: 'model',
+        type: 'text',
+        label: 'Model',
+        description: 'Model name of the asset',
+        required: false,
+        included: true,
+        example: 'ARUBA 6100 48G 4SFP+ Switch JL676A',
+        placeholder: 'Enter model name',
+        isStandard: true
+      },
+      {
+        id: 'image',
+        name: 'image',
+        type: 'file',
+        label: 'Asset Image',
+        description: 'Upload an image of the asset',
+        required: false,
+        included: true,
+        example: 'asset-photo.jpg',
+        placeholder: 'Select image file',
+        accept: 'image/*',
+        isStandard: true
+      }
+    ]
+    return defaultFields
+  }
+  
+  const defaultFields = getDefaultFields()
+  const [fields, setFields] = React.useState<AnyAssetField[]>(defaultFields)
+  const [assetFormSchema, setAssetFormSchema] = React.useState<z.ZodObject<Record<string, z.ZodTypeAny>>>(() => createAssetFormSchema(defaultFields))
+  const [isLoading, setIsLoading] = React.useState(false) // Start as false for instant loading
+  const [addCategoryOpen, setAddCategoryOpen] = React.useState(false)
+  const [addSubCategoryOpen, setAddSubCategoryOpen] = React.useState(false)
+  const [newCategoryName, setNewCategoryName] = React.useState("")
+  const [newSubCategoryName, setNewSubCategoryName] = React.useState("")
+  const [isAddingCategory, setIsAddingCategory] = React.useState(false)
+  const [isAddingSubCategory, setIsAddingSubCategory] = React.useState(false)
+  const [issuedToSearch, setIssuedToSearch] = React.useState("")
+  const [imagePreview, setImagePreview] = React.useState<string | null>(null)
+  const [showAssetIdDialog, setShowAssetIdDialog] = React.useState(false)
+  const [pendingImageFile, setPendingImageFile] = React.useState<File | null>(null)
+  
+  // Dialog states for validation errors
+  const [showInvalidFormatDialog, setShowInvalidFormatDialog] = React.useState(false)
+  const [formatError, setFormatError] = React.useState<string | null>(null)
+  const [showDuplicateIdDialog, setShowDuplicateIdDialog] = React.useState(false)
+  const [duplicateAssetId, setDuplicateAssetId] = React.useState('')
+  const [suggestedAssetId, setSuggestedAssetId] = React.useState('')
+  const [showSuccessDialog, setShowSuccessDialog] = React.useState(false)
+  const [createdAssetId, setCreatedAssetId] = React.useState('')
 
-  // Load dynamic fields
+  // Load dynamic fields and merge with defaults
   React.useEffect(() => {
+    
+    // Hard reset to clear all caches
+    console.log('Performing hard reset of field configuration...')
+    fieldManager.forceReset()
+    
+    // Ensure image field is always included
+    fieldManager.ensureImageField()
+    
+    // Load initial fields and merge with defaults
     const loadedFields = fieldManager.getIncludedFields()
-    setFields(loadedFields)
-    setAssetFormSchema(createAssetFormSchema(loadedFields))
-    setIsLoading(false)
+    console.log('Loaded fields after reset:', loadedFields.map(f => ({ name: f.name, type: f.type, included: f.included })))
+    console.log('All fields from manager:', fieldManager.getAllFields().map(f => ({ name: f.name, type: f.type, included: f.included })))
+    
+    // Merge loaded fields with defaults (loaded fields take precedence)
+    const mergedFields = [...defaultFields]
+    loadedFields.forEach(loadedField => {
+      const existingIndex = mergedFields.findIndex(f => f.name === loadedField.name)
+      if (existingIndex >= 0) {
+        mergedFields[existingIndex] = loadedField
+      } else {
+        mergedFields.push(loadedField)
+      }
+    })
+    
+    setFields(mergedFields)
+    setAssetFormSchema(createAssetFormSchema(mergedFields))
 
     // Subscribe to field changes
-    const unsubscribe = fieldManager.subscribe((updatedFields) => {
-      const includedFields = updatedFields.filter(field => field.included)
-      setFields(includedFields)
-      setAssetFormSchema(createAssetFormSchema(includedFields))
+    const unsubscribe = fieldManager.subscribe((updatedFields: AnyAssetField[]) => {
+      const includedFields = updatedFields.filter((field: AnyAssetField) => field.included)
+      
+      // Merge with defaults again
+      const mergedFields = [...defaultFields]
+      includedFields.forEach(loadedField => {
+        const existingIndex = mergedFields.findIndex(f => f.name === loadedField.name)
+        if (existingIndex >= 0) {
+          mergedFields[existingIndex] = loadedField
+        } else {
+          mergedFields.push(loadedField)
+        }
+      })
+      
+      setFields(mergedFields)
+      setAssetFormSchema(createAssetFormSchema(mergedFields))
     })
 
     return unsubscribe
-  }, [fieldManager])
+  }, [])
+
+
+  // Handle adding new category
+  const handleAddCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast.error("Please enter a category name")
+      return
+    }
+    
+    setIsAddingCategory(true)
+    
+    try {
+      // Simulate API delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      const newCategory = setupDataManager.addCategory({
+        name: newCategoryName.trim(),
+        description: `Custom category: ${newCategoryName.trim()}`,
+        isActive: true
+      })
+      
+      toast.success(`Category "${newCategory.name}" added successfully!`)
+      setNewCategoryName("")
+      setAddCategoryOpen(false)
+      
+      // Refresh the form to show the new category
+      window.location.reload()
+    } catch (error) {
+      console.error('Error adding category:', error)
+      toast.error("Failed to add category")
+    } finally {
+      setIsAddingCategory(false)
+    }
+  }
+
+  // Handle adding new sub category
+  const handleAddSubCategory = async () => {
+    if (!newSubCategoryName.trim()) {
+      toast.error("Please enter a sub category name")
+      return
+    }
+    
+    setIsAddingSubCategory(true)
+    
+    try {
+      // Simulate API delay for better UX
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Get the current sub category field
+      const subCategoryField = fields.find(field => field.name === 'subCategory')
+      if (subCategoryField && subCategoryField.options) {
+        // Add the new option to the field
+        const updatedOptions = [...subCategoryField.options, newSubCategoryName.trim()]
+        const fieldManager = AssetFieldManager.getInstance()
+        fieldManager.updateField(subCategoryField.id, { options: updatedOptions })
+        
+        toast.success(`Sub Category "${newSubCategoryName.trim()}" added successfully!`)
+        setNewSubCategoryName("")
+        setAddSubCategoryOpen(false)
+      }
+    } catch (error) {
+      console.error('Error adding sub category:', error)
+      toast.error("Failed to add sub category")
+    } finally {
+      setIsAddingSubCategory(false)
+    }
+  }
 
   // Create default values dynamically
   const createDefaultValues = (fields: AnyAssetField[]) => {
-    const defaults: Record<string, string | Date | undefined> = {}
+    const defaults: Record<string, string | Date | File | null | undefined> = {}
     fields.forEach(field => {
       if (field.included) {
         // Ensure all fields have defined values to prevent uncontrolled to controlled warnings
@@ -146,6 +452,8 @@ export default function AddAssetPage() {
           defaults[field.name] = undefined
         } else if (field.type === 'number') {
           defaults[field.name] = ""
+        } else if (field.type === 'file') {
+          defaults[field.name] = null
         } else {
           defaults[field.name] = ""
         }
@@ -159,6 +467,105 @@ export default function AddAssetPage() {
     defaultValues: createDefaultValues(fields),
   })
 
+  // Initialize search value when form field changes
+  React.useEffect(() => {
+    const assignedToValue = form.getValues('assignedTo')
+    if (assignedToValue) {
+      const selectedEmployee = employees.find(emp => emp.id === assignedToValue)
+      if (selectedEmployee) {
+        setIssuedToSearch(selectedEmployee.name)
+      }
+    }
+  }, [form, employees])
+
+  // Handle image file upload
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('=== IMAGE UPLOAD DEBUG ===')
+    console.log('File input changed:', event.target.files)
+    
+    const file = event.target.files?.[0]
+    if (file) {
+      console.log('File selected:', file.name, file.type, file.size)
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        console.log('Invalid file type:', file.type)
+        toast.error('Please select an image file')
+        return
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        console.log('File too large:', file.size)
+        toast.error('Image size must be less than 5MB')
+        return
+      }
+      
+      // Check if Asset ID is provided
+      const assetId = form.getValues('assetTagId') as string
+      if (!assetId || assetId.trim() === '') {
+        console.log('Asset ID not provided, showing dialog')
+        setPendingImageFile(file)
+        setShowAssetIdDialog(true)
+        return
+      }
+      
+      console.log('Asset ID provided, processing image upload...')
+      processImageUpload(file, assetId)
+    } else {
+      console.log('No file selected')
+    }
+    console.log('=== END IMAGE UPLOAD DEBUG ===')
+  }
+
+  // Process image upload with Asset ID
+  const processImageUpload = (file: File, assetId: string) => {
+    console.log('Processing image upload with Asset ID:', assetId)
+    
+    // Create preview
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      console.log('File read successfully, setting preview')
+      setImagePreview(e.target?.result as string)
+    }
+    reader.onerror = (e) => {
+      console.error('File read error:', e)
+    }
+    reader.readAsDataURL(file)
+    
+    // Update form field
+    console.log('Setting form value for image field')
+    form.setValue('image', file)
+    console.log('Form value set successfully')
+  }
+
+  // Handle Asset ID dialog confirmation
+  const handleAssetIdDialogConfirm = () => {
+    const assetId = form.getValues('assetTagId') as string
+    if (assetId && assetId.trim() !== '' && pendingImageFile) {
+      processImageUpload(pendingImageFile, assetId)
+      setShowAssetIdDialog(false)
+      setPendingImageFile(null)
+    }
+  }
+
+  // Handle Asset ID dialog cancel
+  const handleAssetIdDialogCancel = () => {
+    setShowAssetIdDialog(false)
+    setPendingImageFile(null)
+    // Clear the file input
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    if (fileInput) {
+      fileInput.value = ''
+    }
+  }
+
+  // Remove image
+  const removeImage = () => {
+    setImagePreview(null)
+    form.setValue('image', null)
+  }
+
   // Update form when fields change
   React.useEffect(() => {
     if (fields.length > 0 && !isLoading) {
@@ -171,48 +578,156 @@ export default function AddAssetPage() {
     setIsSubmitting(true)
     
     try {
-      // Create the asset object with all form data
-      const assetData = {
-        name: String(data.name || ''),
-        description: String(data.description || ''),
-        category: String(data.category || ''),
-        location: String(data.location || ''),
-        department: String(data.department || ''),
-        purchaseDate: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : '',
-        assignedTo: String(data.assignedTo || ''),
-        ...data,
-        // Convert date fields to ISO strings if they exist
-        ...Object.keys(data).reduce((acc, key) => {
-          const field = fields.find(f => f.name === key)
-          if (field?.type === 'date' && data[key] instanceof Date) {
-            acc[key] = format(data[key] as Date, "yyyy-MM-dd")
-          } else if (data[key] !== undefined) {
-            acc[key] = String(data[key])
+      console.log('Form submission data:', data)
+      
+      // Get Asset ID for image renaming
+      let assetId = String(data.assetTagId || '')
+      
+      // Validate Asset ID format
+      const formatValidation = validateAssetIdFormat(assetId)
+      if (!formatValidation.isValid) {
+        setFormatError(formatValidation.error || 'Invalid Asset ID format')
+        setShowInvalidFormatDialog(true)
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Check if Asset ID already exists
+      console.log('Checking if Asset ID exists:', assetId)
+      const existenceCheck = await checkAssetIdExists(assetId)
+      if (existenceCheck.error) {
+        toast.error("Unable to verify Asset ID", {
+          description: existenceCheck.error,
+          duration: 4000,
+        })
+        setIsSubmitting(false)
+        return
+      }
+      
+      if (existenceCheck.exists) {
+        const suggestedId = suggestAssetId(assetId)
+        setDuplicateAssetId(assetId)
+        setSuggestedAssetId(suggestedId)
+        setShowDuplicateIdDialog(true)
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Handle image upload FIRST with Asset ID (before creating asset)
+      let imageUrl = ''
+      let imageFileName = ''
+      
+      if (data.image && data.image instanceof File) {
+        try {
+          console.log('Uploading image to Supabase Storage with Asset ID...')
+          
+          // Use Asset ID as filename for easy identification
+          const fileExt = data.image.name.split('.').pop()
+          const fileName = `${assetId}.${fileExt}`
+          const filePath = `assets/${fileName}`
+          
+          console.log('=== IMAGE UPLOAD DEBUG ===')
+          console.log('Original filename:', data.image.name)
+          console.log('Asset ID:', assetId)
+          console.log('File extension:', fileExt)
+          console.log('New filename:', fileName)
+          console.log('File path:', filePath)
+          console.log('========================')
+          
+          // Upload to Supabase Storage
+          const { data: uploadData, error: uploadError } = await assetService.uploadImage(data.image, filePath)
+          
+          if (uploadError) {
+            console.error('Image upload failed:', uploadError)
+            toast.error("Image upload failed", {
+              description: uploadError.message + ". Asset will be created without image.",
+              duration: 4000,
+            })
+          } else {
+            console.log('Image uploaded successfully:', uploadData)
+            imageUrl = uploadData?.publicUrl || ''
+            imageFileName = fileName
           }
-          return acc
-        }, {} as Record<string, string>),
-        status: "Available" as "Available" | "In Use" | "Maintenance" | "Disposed",
-        value: data.cost ? parseFloat(String(data.cost)) || 0 : 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        } catch (error) {
+          console.error('Image upload error:', error)
+          toast.error("Image upload failed", {
+            description: "Asset will be created without image.",
+            duration: 4000,
+          })
+        }
+      }
+      
+      // Prepare asset data for database
+      const assetData: CreateAssetData = {
+        asset_tag_id: assetId,
+        name: String(data.name || data.description || data.serialNumber || data.brand || data.model || assetId || 'Untitled Asset'), // Use name field from form, fallback to other fields, ensure never empty
+        description: String(data.description || ''),
+        serial_number: String(data.serialNumber || ''),
+        brand: String(data.brand || ''),
+        model: String(data.model || ''),
+        cost: data.cost ? parseFloat(String(data.cost)) || 0 : 0,
+        purchase_date: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
+        date_acquired: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
+        category: String(data.category || ''),
+        sub_category: String(data.subCategory || ''),
+        location: String(data.location || ''),
+        site: String(data.site || ''),
+        department: String(data.department || ''),
+        status: "Available",
+        assigned_to: String(data.assignedTo || ''),
+        asset_type: String(data.assetType || ''),
+        notes: String(data.notes || ''),
+        image_url: imageUrl,
+        image_file_name: imageFileName,
       }
 
-      // Save the asset using DataManager
-      const dataManager = DataManager.getInstance()
-      const newAsset = dataManager.addAsset(assetData)
+      console.log('Prepared asset data:', assetData)
+      console.log('Asset name being sent:', assetData.name)
 
-      console.log("Asset created:", newAsset)
+      // Test database connection first
+      console.log('Testing database connection...')
+      const connectionTest = await assetService.testConnection()
+      console.log('Connection test result:', connectionTest)
+      
+      if (!connectionTest.success) {
+        toast.error("Database connection failed", {
+          description: connectionTest.error || "Please check your database configuration.",
+          duration: 4000,
+        })
+        return
+      }
 
-      toast.success("Asset created successfully!", {
-        description: `Asset has been added to your inventory.`,
-        duration: 4000,
-      })
+      // Save the asset to database
+      console.log('Calling assetService.createAsset with:', assetData)
+      const result = await assetService.createAsset(assetData)
+      console.log('Asset service result:', result)
 
-      router.push("/assets")
+      if (result.success && result.data) {
+        console.log("Asset created successfully:", result.data)
+        
+        toast.success("Asset created successfully!", {
+          description: `Asset ${result.data.asset_tag_id} has been added to your inventory.`,
+          duration: 4000,
+        })
+
+        // Reset form
+        form.reset()
+        setImagePreview(null)
+        
+        // Show success dialog instead of redirecting
+        setCreatedAssetId(assetId)
+        setShowSuccessDialog(true)
+      } else {
+        console.error("Failed to create asset:", result.error)
+        toast.error("Failed to create asset", {
+          description: result.error || "Please try again or contact support if the issue persists.",
+          duration: 4000,
+        })
+      }
     } catch (error) {
-      console.error("Failed to create asset:", error)
+      console.error("Unexpected error creating asset:", error)
       toast.error("Failed to create asset", {
-        description: "Please try again or contact support if the issue persists.",
+        description: "An unexpected error occurred. Please try again.",
         duration: 4000,
       })
     } finally {
@@ -265,6 +780,7 @@ export default function AddAssetPage() {
                     onChange={formField.onChange}
                     onBlur={formField.onBlur}
                     name={formField.name}
+                    className="w-full"
                   />
                 </FormControl>
                 {field.description && (
@@ -298,6 +814,7 @@ export default function AddAssetPage() {
                     onChange={formField.onChange}
                     onBlur={formField.onBlur}
                     name={formField.name}
+                    className="w-full"
                   />
                 </FormControl>
                 {field.description && (
@@ -308,6 +825,83 @@ export default function AddAssetPage() {
             )}
           />
         )
+
+      case 'file':
+        // Special handling for image upload field
+        console.log('Checking field:', field.name, field.type, 'is image?', field.name === 'image')
+        if (field.name === 'image') {
+          console.log('Rendering image field with special handling')
+          return (
+            <div key={field.id} className="w-full">
+              <FormLabel className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                {field.label}
+                {field.required && <span className="text-destructive ml-1">*</span>}
+              </FormLabel>
+              <div className="space-y-4 mt-2">
+                {/* File Input */}
+                <div className="flex items-center gap-4">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    onClick={() => console.log('File input clicked')}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ cursor: 'pointer' }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => document.getElementById('image-upload')?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Choose File
+                  </Button>
+                </div>
+                
+                {/* Hidden file input for button trigger */}
+                <input
+                  id="image-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+                
+                {/* Image Preview */}
+                {imagePreview && (
+                  <div className="relative">
+                    <div className="border rounded-lg p-4 bg-muted/50">
+                      <div className="flex items-center gap-2 mb-2">
+                        <ImageIcon className="h-4 w-4" />
+                        <span className="text-sm font-medium">Image Preview</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={removeImage}
+                          className="ml-auto h-6 w-6 p-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <img
+                        src={imagePreview}
+                        alt="Asset preview"
+                        className="max-w-full h-48 object-contain rounded border"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {field.description && (
+                <p className="text-sm text-muted-foreground mt-1">{field.description}</p>
+              )}
+            </div>
+          )
+        }
+        // Fallback for other file types
+        return null
 
       case 'date':
         return (
@@ -369,6 +963,8 @@ export default function AddAssetPage() {
           options = categories.map(cat => ({ value: cat.id, label: cat.name }))
         } else if (field.name === 'location') {
           options = locations.map(loc => ({ value: loc.id, label: loc.name }))
+        } else if (field.name === 'site') {
+          options = setupDataManager.getSites().map(site => ({ value: site.id, label: site.name }))
         } else if (field.name === 'department') {
           options = departments.map(dept => ({ value: dept.id, label: dept.name }))
         } else if (field.name === 'assignedTo') {
@@ -379,6 +975,52 @@ export default function AddAssetPage() {
           options = field.options.map(opt => ({ value: opt, label: opt }))
         }
 
+        // Special handling for Issued To field to make it searchable
+        if (field.name === 'assignedTo') {
+          return (
+            <FormField
+              key={field.id}
+              control={form.control}
+              name={fieldName}
+              render={({ field: formField }) => (
+                <FormItem>
+                  <FormLabel>
+                    {field.label}
+                    {field.required && <span className="text-destructive ml-1">*</span>}
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Type to search employees..."
+                      value={issuedToSearch}
+                      onChange={(e) => {
+                        const value = e.target.value
+                        setIssuedToSearch(value)
+                        
+                        // Find matching employee and set form field
+                        const matchingEmployee = employees.find(emp => 
+                          emp.name.toLowerCase().includes(value.toLowerCase())
+                        )
+                        
+                        if (matchingEmployee && value === matchingEmployee.name) {
+                          formField.onChange(matchingEmployee.id)
+                        } else {
+                          formField.onChange("")
+                        }
+                      }}
+                      className="w-full"
+                    />
+                  </FormControl>
+                  {field.description && (
+                    <FormDescription>{field.description}</FormDescription>
+                  )}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )
+        }
+
+        console.log('Rendering field with default handler:', field.name, field.type)
         return (
           <FormField
             key={field.id}
@@ -390,20 +1032,41 @@ export default function AddAssetPage() {
                   {field.label}
                   {field.required && <span className="text-destructive ml-1">*</span>}
                 </FormLabel>
-                <Select onValueChange={formField.onChange} value={String(formField.value || "")}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {options.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Select onValueChange={formField.onChange} value={String(formField.value || "")}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder={field.placeholder || `Select ${field.label.toLowerCase()}`} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {options.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {(field.name === 'category' || field.name === 'subCategory') && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (field.name === 'category') {
+                          setAddCategoryOpen(true)
+                        } else if (field.name === 'subCategory') {
+                          setAddSubCategoryOpen(true)
+                        }
+                      }}
+                      className="px-3 flex-shrink-0"
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
                 {field.description && (
                   <FormDescription>{field.description}</FormDescription>
                 )}
@@ -432,6 +1095,7 @@ export default function AddAssetPage() {
                     onChange={formField.onChange}
                     onBlur={formField.onBlur}
                     name={formField.name}
+                    className="w-full"
                   />
                 </FormControl>
                 {field.description && (
@@ -501,25 +1165,6 @@ export default function AddAssetPage() {
           </div>
 
           {/* Asset Form */}
-          {isLoading || fields.length === 0 ? (
-            <Card>
-              <CardContent className="py-12">
-                <div className="flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-muted-foreground">
-                      {isLoading ? "Loading field configuration..." : "No fields configured"}
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      Please configure your asset fields in{" "}
-                      <a href="/setup/databases/assets-table" className="text-primary hover:underline">
-                        Database Assets
-                      </a>
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
                 {/* Grouped Fields in Separate Cards */}
@@ -536,7 +1181,11 @@ export default function AddAssetPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="grid gap-4 md:grid-cols-2">
-                        {categoryFields.map((field) => renderField(field))}
+                        {categoryFields.map((field) => (
+                          <div key={field.id} className="w-full">
+                            {renderField(field)}
+                          </div>
+                        ))}
                       </div>
                     </CardContent>
                   </Card>
@@ -558,7 +1207,10 @@ export default function AddAssetPage() {
                     className="min-w-[120px]"
                   >
                     {isSubmitting ? (
-                      "Creating Asset..."
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
                     ) : (
                       <>
                         <Save className="mr-2 h-4 w-4" />
@@ -569,7 +1221,398 @@ export default function AddAssetPage() {
                 </div>
               </form>
             </Form>
-          )}
+
+          {/* Add Category Dialog */}
+          <Dialog open={addCategoryOpen} onOpenChange={setAddCategoryOpen}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Plus className="h-5 w-5" />
+                  Add New Category
+                </DialogTitle>
+                <DialogDescription>
+                  Add a new category to the asset management system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="categoryName">Category Name</Label>
+                  <Input
+                    id="categoryName"
+                    placeholder="Enter category name"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isAddingCategory) {
+                        handleAddCategory()
+                      }
+                    }}
+                    disabled={isAddingCategory}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setAddCategoryOpen(false)
+                    setNewCategoryName("")
+                  }}
+                  disabled={isAddingCategory}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleAddCategory} disabled={isAddingCategory}>
+                  {isAddingCategory ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Category"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Add Sub Category Dialog */}
+          <Dialog open={addSubCategoryOpen} onOpenChange={setAddSubCategoryOpen}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Plus className="h-5 w-5" />
+                  Add New Sub Category
+                </DialogTitle>
+                <DialogDescription>
+                  Add a new sub category to the asset management system.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="subCategoryName">Sub Category Name</Label>
+                  <Input
+                    id="subCategoryName"
+                    placeholder="Enter sub category name"
+                    value={newSubCategoryName}
+                    onChange={(e) => setNewSubCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isAddingSubCategory) {
+                        handleAddSubCategory()
+                      }
+                    }}
+                    disabled={isAddingSubCategory}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setAddSubCategoryOpen(false)
+                    setNewSubCategoryName("")
+                  }}
+                  disabled={isAddingSubCategory}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleAddSubCategory} disabled={isAddingSubCategory}>
+                  {isAddingSubCategory ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Adding...
+                    </>
+                  ) : (
+                    "Add Sub Category"
+                  )}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Asset ID Required Dialog */}
+          <Dialog open={showAssetIdDialog} onOpenChange={setShowAssetIdDialog}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <ImageIcon className="h-5 w-5" />
+                  Asset ID Required
+                </DialogTitle>
+                <DialogDescription>
+                  Please enter an Asset ID before uploading an image. The image will be automatically renamed using this Asset ID.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="assetIdForImage">Asset ID</Label>
+                  <Input
+                    id="assetIdForImage"
+                    placeholder="Enter Asset ID (e.g., LAPTOP-001)"
+                    value={(form.getValues('assetTagId') as string) || ''}
+                    onChange={(e) => form.setValue('assetTagId', e.target.value)}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    The image will be renamed to: <span className="font-mono font-medium">{(form.getValues('assetTagId') as string) || 'ASSET-ID'}.jpg</span>
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={handleAssetIdDialogCancel}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleAssetIdDialogConfirm}
+                  disabled={!(form.getValues('assetTagId') as string) || ((form.getValues('assetTagId') as string) || '').trim() === ''}
+                >
+                  Upload Image
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Invalid Asset ID Format Dialog */}
+          <Dialog open={showInvalidFormatDialog} onOpenChange={setShowInvalidFormatDialog}>
+            <DialogContent className="sm:max-w-[480px]">
+              <DialogHeader className="space-y-3">
+                <DialogTitle className="flex items-center gap-3 text-xl">
+                  <div className="flex items-center justify-center w-10 h-10 bg-red-100 dark:bg-red-900/20 rounded-lg">
+                    <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                  Invalid Asset ID Format
+                </DialogTitle>
+                <DialogDescription className="text-base text-muted-foreground">
+                  The Asset ID you entered doesn't meet the required format. Please review the requirements below and fix your entry.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                {/* Error Message */}
+                <Alert className="border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950">
+                  <div className="flex items-center gap-2">
+                    <svg className="w-4 h-4 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="font-medium text-red-800 dark:text-red-300">Format Error</span>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-sm text-red-700 dark:text-red-300">{formatError}</p>
+                  </div>
+                </Alert>
+
+                {/* Requirements List */}
+                <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+                  <CardContent className="p-4">
+                    <h4 className="font-medium text-blue-800 dark:text-blue-300 mb-3">Asset ID Requirements:</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex items-center justify-center w-5 h-5 bg-blue-100 dark:bg-blue-900/30 rounded-full mt-0.5 flex-shrink-0">
+                          <span className="text-blue-600 dark:text-blue-400 font-bold text-xs">1</span>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Length Requirements</p>
+                          <p className="text-xs text-blue-700 dark:text-blue-400">Must be between 3-50 characters long</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="flex items-center justify-center w-5 h-5 bg-blue-100 dark:bg-blue-900/30 rounded-full mt-0.5 flex-shrink-0">
+                          <span className="text-blue-600 dark:text-blue-400 font-bold text-xs">2</span>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Character Requirements</p>
+                          <p className="text-xs text-blue-700 dark:text-blue-400">Can only contain letters (A-Z), numbers (0-9), hyphens (-), and underscores (_)</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="flex items-center justify-center w-5 h-5 bg-blue-100 dark:bg-blue-900/30 rounded-full mt-0.5 flex-shrink-0">
+                          <span className="text-blue-600 dark:text-blue-400 font-bold text-xs">3</span>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-blue-800 dark:text-blue-300">Examples</p>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            <Badge variant="secondary" className="text-xs font-mono">ABC-123</Badge>
+                            <Badge variant="secondary" className="text-xs font-mono">Test_Asset_001</Badge>
+                            <Badge variant="secondary" className="text-xs font-mono">COMPANY-LAPTOP</Badge>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <DialogFooter className="pt-4">
+                <Button 
+                  onClick={() => {
+                    setShowInvalidFormatDialog(false)
+                    setFormatError(null)
+                  }}
+                  className="w-full"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Close & Fix Asset ID
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Duplicate Asset ID Dialog */}
+          <Dialog open={showDuplicateIdDialog} onOpenChange={setShowDuplicateIdDialog}>
+            <DialogContent className="sm:max-w-[480px]">
+              <DialogHeader className="space-y-3">
+                <DialogTitle className="flex items-center gap-3 text-xl">
+                  <div className="flex items-center justify-center w-10 h-10 bg-orange-100 dark:bg-orange-900/20 rounded-lg">
+                    <svg className="w-5 h-5 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                  </div>
+                  Asset ID Already Exists
+                </DialogTitle>
+                <DialogDescription className="text-base text-muted-foreground">
+                  The Asset ID <span className="font-mono font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded text-sm">"{duplicateAssetId}"</span> is already in use by another asset. Please choose an alternative:
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-6 py-4">
+                {/* Option 1 - Suggested Asset ID */}
+                <Card className="border-dashed border-2 border-primary/20 bg-primary/5 dark:bg-primary/10">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex items-center justify-center w-6 h-6 bg-primary rounded-full text-primary-foreground font-bold text-sm flex-shrink-0 mt-0.5">
+                        1
+                      </div>
+                      <div className="space-y-2 flex-1">
+                        <h4 className="font-medium text-foreground">Use suggested Asset ID</h4>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="secondary" className="font-mono text-sm px-3 py-1 bg-primary/20 text-primary border-primary/30">
+                            {suggestedAssetId}
+                          </Badge>
+                          <span className="text-sm text-muted-foreground">Auto-generated based on your input</span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Option 2 - Manual Entry */}
+                <Card className="border-dashed border-2 border-muted-foreground/20 bg-muted/30">
+                  <CardContent className="p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex items-center justify-center w-6 h-6 bg-muted-foreground/20 rounded-full text-muted-foreground font-bold text-sm flex-shrink-0 mt-0.5">
+                        2
+                      </div>
+                      <div className="space-y-2 flex-1">
+                        <h4 className="font-medium text-muted-foreground">Enter a different Asset ID manually</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Close this dialog and type a new Asset ID in the Asset Tag ID field
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Asset ID Requirements */}
+                <div className="bg-muted/50 rounded-lg p-3 border">
+                  <h4 className="font-medium text-sm mb-2 text-muted-foreground">Asset ID Requirements:</h4>
+                  <ul className="text-xs space-y-1 text-muted-foreground ml-1">
+                    <li>• 3-50 characters, alphanumeric with hyphens and underscores</li>
+                    <li>• Must be unique across all assets</li>
+                    <li>• Examples: ABC-001, LAPTOP-2023, DESKTOP_001</li>
+                  </ul>
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-0 pt-4">
+                <Button 
+                  variant="outline"
+                  onClick={() => {
+                    setShowDuplicateIdDialog(false)
+                    setDuplicateAssetId('')
+                    setSuggestedAssetId('')
+                  }}
+                  className="sm:flex-shrink-0"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => {
+                    form.setValue('assetTagId', suggestedAssetId)
+                    setShowDuplicateIdDialog(false)
+                    setDuplicateAssetId('')
+                    setSuggestedAssetId('')
+                  }}
+                  className="sm:flex-shrink-0"
+                >
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Use Suggested ID
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Success Dialog */}
+          <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+            <DialogContent className="sm:max-w-[480px]">
+              <DialogHeader className="space-y-3">
+                <DialogTitle className="flex items-center gap-3 text-xl">
+                  <div className="flex items-center justify-center w-10 h-10 bg-green-100 dark:bg-green-900/20 rounded-lg">
+                    <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  Asset Created Successfully!
+                </DialogTitle>
+                <DialogDescription className="text-base text-muted-foreground">
+                  Your asset <span className="font-mono font-semibold text-foreground bg-muted px-1.5 py-0.5 rounded text-sm">"{createdAssetId}"</span> has been successfully added to your inventory.
+                </DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="flex items-center gap-3 p-4 bg-green-50 dark:bg-green-900/10 border border-green-200 dark:border-green-800 rounded-lg">
+                  <div className="flex items-center justify-center w-8 h-8 bg-green-100 dark:bg-green-900/20 rounded-full">
+                    <svg className="w-4 h-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-green-800 dark:text-green-200">
+                      Asset Added Successfully
+                    </p>
+                    <p className="text-xs text-green-600 dark:text-green-400">
+                      The asset is now available in your inventory system
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <DialogFooter className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowSuccessDialog(false)}
+                  className="flex-1"
+                >
+                  Add Another Asset
+                </Button>
+                <Button 
+                  onClick={() => {
+                    setShowSuccessDialog(false)
+                    router.push("/assets")
+                  }}
+                  className="flex-1"
+                >
+                  View All Assets
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </SidebarInset>
     </SidebarProvider>

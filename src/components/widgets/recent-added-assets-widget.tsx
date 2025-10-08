@@ -1,22 +1,28 @@
 "use client"
 
+import * as React from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { getAllAssets } from "@/lib/centralized-assets"
+import { useInstantAssets } from "@/hooks/use-instant-assets"
 import { Package, Eye, UserCheck, UserMinus, Calendar } from "lucide-react"
 import Link from "next/link"
 import { useState } from "react"
 
 export function RecentAddedAssetsWidget() {
   const [checkInOutLoading, setCheckInOutLoading] = useState<string | null>(null)
+  const { data: assets = [], isLoading } = useInstantAssets()
 
-  // Get recent assets (last 5 added)
-  const recentAssets = getAllAssets()
-    .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
-    .slice(0, 3)
+  // Get recent assets (last 3 added)
+  const recentAssets = React.useMemo(() => {
+    if (isLoading) return []
+    
+    return assets
+      .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime())
+      .slice(0, 3)
+  }, [assets, isLoading])
 
   const handleCheckIn = async (assetId: string) => {
     setCheckInOutLoading(assetId)
@@ -121,4 +127,6 @@ export function RecentAddedAssetsWidget() {
     </Card>
   )
 }
+
+
 
