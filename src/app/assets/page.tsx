@@ -53,7 +53,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X, Image as ImageIcon } from "lucide-react"
+import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X, Image as ImageIcon, Camera } from "lucide-react"
 import Link from "next/link"
 
 // Use useAssets hook for Supabase integration
@@ -136,6 +136,12 @@ export default function AssetsPage() {
   ])
   const [rowsPerPage, setRowsPerPage] = React.useState(10)
   const [currentPage, setCurrentPage] = React.useState(1)
+  
+  // QR Scanner states
+  const [isQrScannerOpen, setIsQrScannerOpen] = React.useState(false)
+  const [scannedAssetId, setScannedAssetId] = React.useState<string | null>(null)
+  const [showQrOptionsDialog, setShowQrOptionsDialog] = React.useState(false)
+  const [isCameraScanning, setIsCameraScanning] = React.useState(false)
 
   // Available field options
   const fieldOptions = [
@@ -296,6 +302,122 @@ export default function AssetsPage() {
       setEditedAsset(prev => prev ? { ...prev, [field]: value } : null)
     }
   }
+
+  // QR Scanner functionality
+  const handleQrScan = (result: string) => {
+    try {
+      // Try to parse as JSON first (for our structured QR codes)
+      const qrData = JSON.parse(result)
+      if (qrData.type === 'asset' && qrData.id) {
+        setScannedAssetId(qrData.id)
+        setIsQrScannerOpen(false)
+        return
+      }
+    } catch (error) {
+      // If not JSON, treat as plain asset ID
+      console.log('QR code is not JSON format, treating as plain asset ID')
+    }
+    
+    // Treat the result as a plain asset ID
+    setScannedAssetId(result.trim())
+    setIsQrScannerOpen(false)
+  }
+
+  const handleQrScannerError = (error: any) => {
+    console.error('QR Scanner error:', error)
+    // You could show a toast notification here
+  }
+
+  // Handle QR image file upload
+  const handleQrFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      // Dynamically import html5-qrcode to avoid SSR issues
+      const Html5Qrcode = await import('html5-qrcode')
+      const html5QrCode = new Html5Qrcode.Html5Qrcode("qr-reader")
+      
+      const result = await html5QrCode.scanFile(file, true)
+      handleQrScan(result)
+    } catch (error) {
+      console.error('Failed to scan QR from file:', error)
+      // You could show a toast notification here
+    }
+  }
+
+  // Handle camera scanning option
+  const handleCameraScan = () => {
+    setShowQrOptionsDialog(false)
+    setIsCameraScanning(true)
+    setIsQrScannerOpen(true)
+  }
+
+  // Handle file upload option
+  const handleFileUploadScan = () => {
+    setShowQrOptionsDialog(false)
+    setIsCameraScanning(false)
+    // Trigger file input
+    const fileInput = document.createElement('input')
+    fileInput.type = 'file'
+    fileInput.accept = 'image/*'
+    fileInput.onchange = (event) => {
+      const target = event.target as HTMLInputElement
+      if (target.files?.[0]) {
+        handleQrFileUpload({ target } as React.ChangeEvent<HTMLInputElement>)
+      }
+    }
+    fileInput.click()
+  }
+
+  // Handle scanned asset ID
+  React.useEffect(() => {
+    if (scannedAssetId) {
+      // Find the asset by ID
+      const foundAsset = assets.find(asset => asset.id === scannedAssetId)
+      if (foundAsset) {
+        setSelectedAsset(foundAsset)
+        setIsAssetDetailsOpen(true)
+        setIsEditing(false)
+        setScannedAssetId(null) // Reset after showing
+      } else {
+        // Asset not found - you could show a toast notification here
+        console.log('Asset not found:', scannedAssetId)
+        setScannedAssetId(null) // Reset
+      }
+    }
+  }, [scannedAssetId, assets])
+
+  // QR Scanner setup
+  React.useEffect(() => {
+    if (isQrScannerOpen && isCameraScanning) {
+      // Dynamically import html5-qrcode to avoid SSR issues
+      import('html5-qrcode').then((Html5QrcodeScanner) => {
+        const html5QrCode = new Html5QrcodeScanner.Html5QrcodeScanner(
+          "qr-reader",
+          { 
+            fps: 10, 
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0
+          },
+          false
+        )
+        
+        html5QrCode.render(
+          (decodedText: string) => {
+            handleQrScan(decodedText)
+            html5QrCode.clear()
+          },
+          (errorMessage: string) => {
+            // Handle scan error
+            console.log('QR scan error:', errorMessage)
+          }
+        )
+      }).catch((error) => {
+        console.error('Failed to load QR scanner:', error)
+      })
+    }
+  }, [isQrScannerOpen, isCameraScanning])
 
 
 
@@ -532,6 +654,15 @@ export default function AssetsPage() {
                         className="pl-10"
                       />
                     </div>
+                    <Button
+                      variant="outline"
+                      size="default"
+                      onClick={() => setShowQrOptionsDialog(true)}
+                      className="flex items-center gap-2"
+                    >
+                      <Camera className="h-4 w-4" />
+                      <span className="hidden sm:inline">Scan QR</span>
+                    </Button>
                     <div className="flex flex-col gap-4 sm:flex-row">
                       <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                         <SelectTrigger className="w-full sm:w-[180px]">
@@ -1336,6 +1467,81 @@ export default function AssetsPage() {
               <Save className="mr-2 h-4 w-4" />
               Save Changes
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Options Dialog */}
+      <Dialog open={showQrOptionsDialog} onOpenChange={setShowQrOptionsDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5 text-primary" />
+              Scan QR Code
+            </DialogTitle>
+            <DialogDescription>
+              Choose how you want to scan the QR code
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-3">
+              <Button
+                onClick={handleCameraScan}
+                className="flex items-center gap-3 p-4 h-auto"
+                variant="outline"
+              >
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Camera className="h-5 w-5 text-blue-600" />
+                </div>
+                <div className="text-left">
+                  <div className="font-medium">Use Camera</div>
+                  <div className="text-sm text-muted-foreground">Scan QR code with your device camera</div>
+                </div>
+              </Button>
+              
+              <Button
+                onClick={handleFileUploadScan}
+                className="flex items-center gap-3 p-4 h-auto"
+                variant="outline"
+              >
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <ImageIcon className="h-5 w-5 text-green-600" />
+                </div>
+                <div className="text-left">
+                  <div className="font-medium">Upload Image</div>
+                  <div className="text-sm text-muted-foreground">Upload a QR code image file</div>
+                </div>
+              </Button>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowQrOptionsDialog(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Scanner Dialog */}
+      <Dialog open={isQrScannerOpen} onOpenChange={setIsQrScannerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5 text-primary" />
+              Scan QR Code
+            </DialogTitle>
+            <DialogDescription>
+              Point your camera at a QR code to scan an asset
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div id="qr-reader" className="w-full"></div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsQrScannerOpen(false)}>
+                Cancel
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

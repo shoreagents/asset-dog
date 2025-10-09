@@ -311,9 +311,15 @@ export default function AddAssetPage() {
   const [isAddingCategory, setIsAddingCategory] = React.useState(false)
   const [isAddingSubCategory, setIsAddingSubCategory] = React.useState(false)
   const [issuedToSearch, setIssuedToSearch] = React.useState("")
-  const [imagePreview, setImagePreview] = React.useState<string | null>(null)
+  const [uploadedImagePreview, setUploadedImagePreview] = React.useState<string | null>(null)
+  const [qrCodePreview, setQrCodePreview] = React.useState<string | null>(null)
   const [showAssetIdDialog, setShowAssetIdDialog] = React.useState(false)
+  const [showQrAssetIdDialog, setShowQrAssetIdDialog] = React.useState(false)
   const [pendingImageFile, setPendingImageFile] = React.useState<File | null>(null)
+  
+  // Independent dialog input states
+  const [imageDialogAssetId, setImageDialogAssetId] = React.useState('')
+  const [qrDialogAssetId, setQrDialogAssetId] = React.useState('')
   
   // Dialog states for validation errors
   const [showInvalidFormatDialog, setShowInvalidFormatDialog] = React.useState(false)
@@ -519,33 +525,90 @@ export default function AddAssetPage() {
   }
 
   // Process image upload with Asset ID
-  const processImageUpload = (file: File, assetId: string) => {
+  const processImageUpload = async (file: File, assetId: string) => {
+    try {
     console.log('Processing image upload with Asset ID:', assetId)
     
-    // Create preview
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      console.log('File read successfully, setting preview')
-      setImagePreview(e.target?.result as string)
-    }
-    reader.onerror = (e) => {
-      console.error('File read error:', e)
-    }
-    reader.readAsDataURL(file)
+      // Show loading state
+      toast.loading("Uploading image...", {
+        id: 'image-upload'
+      })
+      
+      // Create preview first
+      let previewUrl: string | null = null
+      const reader = new FileReader()
+      reader.onload = (e) => {
+        console.log('File read successfully, setting preview')
+        previewUrl = e.target?.result as string
+        setUploadedImagePreview(previewUrl)
+      }
+      reader.onerror = (e) => {
+        console.error('File read error:', e)
+      }
+      reader.readAsDataURL(file)
     
-    // Update form field
-    console.log('Setting form value for image field')
-    form.setValue('image', file)
-    console.log('Form value set successfully')
+      // Generate file path for Supabase Storage
+      const fileExt = file.name.split('.').pop() || 'jpg'
+      const fileName = `${assetId}.${fileExt}`
+      const filePath = `asset-images/${fileName}`
+      
+      console.log('=== IMAGE UPLOAD DEBUG ===')
+      console.log('Original filename:', file.name)
+      console.log('Asset ID:', assetId)
+      console.log('File extension:', fileExt)
+      console.log('New filename:', fileName)
+      console.log('File path:', filePath)
+      console.log('Bucket: asset-images')
+      console.log('============================')
+      
+      // Upload image to Supabase Storage
+      const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath)
+      
+      if (uploadError) {
+        console.error('Image upload failed:', uploadError)
+        toast.dismiss('image-upload')
+        toast.error("Image upload failed", {
+          description: uploadError.message + ". Image will be used locally.",
+          duration: 4000,
+        })
+        
+        // Fallback: use local file
+        form.setValue('image', file)
+      } else {
+        console.log('Image uploaded successfully:', uploadData)
+        
+        // Set the uploaded image URL as form value
+        form.setValue('image', file)
+        
+        // Create preview using the uploaded URL
+        setUploadedImagePreview(uploadData?.publicUrl || previewUrl)
+        
+        toast.dismiss('image-upload')
+        toast.success("Image uploaded successfully!", {
+          description: `Image for Asset ID "${assetId}" has been uploaded and renamed.`,
+          duration: 4000,
+        })
+      }
+    } catch (error) {
+      console.error('Error processing image upload:', error)
+      toast.dismiss('image-upload')
+      toast.error("Failed to process image upload", {
+        description: "Please try again or contact support if the issue persists.",
+        duration: 4000,
+      })
+    }
   }
 
   // Handle Asset ID dialog confirmation
-  const handleAssetIdDialogConfirm = () => {
-    const assetId = form.getValues('assetTagId') as string
-    if (assetId && assetId.trim() !== '' && pendingImageFile) {
-      processImageUpload(pendingImageFile, assetId)
+  const handleAssetIdDialogConfirm = async () => {
+    const assetId = imageDialogAssetId.trim()
+    if (assetId && pendingImageFile) {
+      // Update the form with the dialog input
+      form.setValue('assetTagId', assetId)
+      await processImageUpload(pendingImageFile, assetId)
       setShowAssetIdDialog(false)
       setPendingImageFile(null)
+      setImageDialogAssetId('')
     }
   }
 
@@ -553,6 +616,7 @@ export default function AddAssetPage() {
   const handleAssetIdDialogCancel = () => {
     setShowAssetIdDialog(false)
     setPendingImageFile(null)
+    setImageDialogAssetId('')
     // Clear the file input
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
     if (fileInput) {
@@ -560,10 +624,171 @@ export default function AddAssetPage() {
     }
   }
 
-  // Remove image
-  const removeImage = () => {
-    setImagePreview(null)
+  // Handle QR Asset ID dialog confirmation
+  const handleQrAssetIdDialogConfirm = async () => {
+    const assetId = qrDialogAssetId.trim()
+    if (assetId) {
+      // Update the form with the dialog input
+      form.setValue('assetTagId', assetId)
+      setShowQrAssetIdDialog(false)
+      setQrDialogAssetId('')
+      await generateQRCode(assetId)
+    }
+  }
+
+  // Handle QR Asset ID dialog cancel
+  const handleQrAssetIdDialogCancel = () => {
+    setShowQrAssetIdDialog(false)
+    setQrDialogAssetId('')
+  }
+
+  // Remove uploaded image
+  const removeUploadedImage = () => {
+    setUploadedImagePreview(null)
     form.setValue('image', null)
+  }
+
+  // Remove QR code
+  const removeQrCode = () => {
+    setQrCodePreview(null)
+  }
+
+  // Generate QR Code
+  const handleGenerateQR = async () => {
+    const assetId = form.getValues('assetTagId') as string
+    if (!assetId || assetId.trim() === '') {
+      setShowQrAssetIdDialog(true)
+      return
+    }
+
+    await generateQRCode(assetId)
+  }
+
+  // Generate QR Code with Asset ID
+  const generateQRCode = async (assetId: string) => {
+    try {
+      // Show loading state
+      toast.loading("Generating QR code...", {
+        id: 'qr-generation'
+      })
+
+      // Create QR code URL with proper data format
+      // Include asset information in a structured format
+      const qrData = {
+        type: 'asset',
+        id: assetId,
+        url: `${window.location.origin}/assets/${assetId}`,
+        timestamp: new Date().toISOString()
+      }
+      
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(JSON.stringify(qrData))}`
+      
+      // Create a temporary image element to download the QR code
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      
+      img.onload = async () => {
+        try {
+          // Create canvas to convert to blob
+          const canvas = document.createElement('canvas')
+          const ctx = canvas.getContext('2d')
+          canvas.width = img.width
+          canvas.height = img.height
+          
+          if (ctx) {
+            ctx.drawImage(img, 0, 0)
+            canvas.toBlob(async (blob) => {
+              if (blob) {
+                try {
+                  // Create file from blob
+                  const file = new File([blob], `${assetId}.png`, { type: 'image/png' })
+                  
+                  // Generate file path for Supabase Storage (QR codes bucket)
+                  const fileExt = file.name.split('.').pop() || 'png'
+                  const fileName = `${assetId}.${fileExt}`
+                  const filePath = `qr-codes/${fileName}`
+                  
+                  console.log('=== QR CODE UPLOAD DEBUG ===')
+                  console.log('QR filename:', file.name)
+                  console.log('Asset ID:', assetId)
+                  console.log('File extension:', fileExt)
+                  console.log('New filename:', fileName)
+                  console.log('File path:', filePath)
+                  console.log('Bucket: qr-codes')
+                  console.log('============================')
+                  
+                  // Upload QR code to Supabase Storage
+                  const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath)
+                  
+                  if (uploadError) {
+                    console.error('QR code upload failed:', uploadError)
+                    toast.dismiss('qr-generation')
+                    toast.error("QR code upload failed", {
+                      description: uploadError.message + ". QR code will be used locally.",
+                      duration: 4000,
+                    })
+                    
+                    // Fallback: use local file
+                    form.setValue('image', file)
+                    const reader = new FileReader()
+                    reader.onload = (e) => {
+                      setQrCodePreview(e.target?.result as string)
+                    }
+                    reader.readAsDataURL(blob)
+                  } else {
+                    console.log('QR code uploaded successfully:', uploadData)
+                    
+                    // Set the uploaded image URL as form value
+                    form.setValue('image', file)
+                    
+                    // Create preview using the uploaded URL
+                    setQrCodePreview(uploadData?.publicUrl || qrCodeUrl)
+                    
+                    toast.dismiss('qr-generation')
+                    toast.success("QR Code generated and uploaded successfully!", {
+                      description: `Scannable QR code for Asset ID "${assetId}" has been generated and uploaded. Contains asset URL and metadata.`,
+                      duration: 4000,
+                    })
+                  }
+                } catch (error) {
+                  console.error('Error processing QR code:', error)
+                  toast.dismiss('qr-generation')
+                  toast.error("Failed to process QR code", {
+                    description: "Please try again or contact support if the issue persists.",
+                    duration: 4000,
+                  })
+                }
+              }
+            }, 'image/png')
+          }
+        } catch (error) {
+          console.error('Error creating QR code canvas:', error)
+          toast.dismiss('qr-generation')
+          toast.error("Failed to create QR code", {
+            description: "Please try again or contact support if the issue persists.",
+            duration: 4000,
+          })
+        }
+      }
+      
+      img.onerror = () => {
+        toast.dismiss('qr-generation')
+        toast.error("Failed to generate QR code", {
+          description: "Please try again or contact support if the issue persists.",
+          duration: 4000,
+        })
+      }
+      
+      img.src = qrCodeUrl
+      
+    } catch (error) {
+      console.error('Error in generateQRCode:', error)
+      toast.dismiss('qr-generation')
+      toast.error("Failed to generate QR code", {
+        description: "Please try again or contact support if the issue persists.",
+        duration: 4000,
+      })
+    }
   }
 
   // Update form when fields change
@@ -712,7 +937,8 @@ export default function AddAssetPage() {
 
         // Reset form
         form.reset()
-        setImagePreview(null)
+        setUploadedImagePreview(null)
+        setQrCodePreview(null)
         
         // Show success dialog instead of redirecting
         setCreatedAssetId(assetId)
@@ -857,6 +1083,17 @@ export default function AddAssetPage() {
                     <Upload className="h-4 w-4 mr-2" />
                     Choose File
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateQR}
+                  >
+                    <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                    </svg>
+                    Generate QR
+                  </Button>
                 </div>
                 
                 {/* Hidden file input for button trigger */}
@@ -868,28 +1105,135 @@ export default function AddAssetPage() {
                   className="hidden"
                 />
                 
-                {/* Image Preview */}
-                {imagePreview && (
-                  <div className="relative">
-                    <div className="border rounded-lg p-4 bg-muted/50">
-                      <div className="flex items-center gap-2 mb-2">
+                {/* Images Preview - 2 Column Layout */}
+                {(uploadedImagePreview || qrCodePreview) && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
                         <ImageIcon className="h-4 w-4" />
-                        <span className="text-sm font-medium">Image Preview</span>
+                      <span className="text-sm font-medium">Asset Images</span>
+                    </div>
+
+                    {/* 2 Column Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Uploaded Image Column */}
+                      {uploadedImagePreview && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-full">
+                              <ImageIcon className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Uploaded Image</span>
+                            </div>
                         <Button
                           type="button"
                           variant="ghost"
                           size="sm"
-                          onClick={removeImage}
-                          className="ml-auto h-6 w-6 p-0"
+                              onClick={removeUploadedImage}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
                         >
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
-                      <img
-                        src={imagePreview}
-                        alt="Asset preview"
-                        className="max-w-full h-48 object-contain rounded border"
-                      />
+
+                          <div className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl p-4">
+                            <div className="flex flex-col items-center space-y-3">
+                              <div className="relative">
+                                <img
+                                  src={uploadedImagePreview}
+                                  alt="Uploaded Asset Image"
+                                  className="h-40 w-auto max-w-full object-contain rounded-lg shadow-sm"
+                                />
+                              </div>
+                              <div className="text-center space-y-1">
+                                <p className="text-sm font-medium text-foreground">Image Uploaded</p>
+                                <p className="text-xs text-muted-foreground">This image will be associated with your asset</p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={removeUploadedImage}
+                                className="text-destructive border-destructive/20 hover:bg-destructive/10"
+                              >
+                                <X className="h-4 w-4 mr-2" />
+                                Remove Image
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* QR Code Column */}
+                      {qrCodePreview && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 px-3 py-1 bg-green-100 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-full">
+                              <svg className="h-4 w-4 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                              </svg>
+                              <span className="text-sm font-medium text-green-700 dark:text-green-300">Generated QR Code</span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={removeQrCode}
+                              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+
+                          <div className="border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/10 rounded-xl p-4">
+                            <div className="flex flex-col items-center space-y-3">
+                              <div className="relative">
+                                <img
+                                  src={qrCodePreview}
+                                  alt="Generated QR Code"
+                                  className="h-40 w-40 object-contain rounded-lg shadow-sm"
+                                />
+                                <div className="absolute -top-2 -right-2 bg-green-500 text-white rounded-full p-1">
+                                  <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                </div>
+                              </div>
+                              <div className="text-center space-y-1">
+                                <p className="text-sm font-medium text-foreground">QR Code Generated</p>
+                                <p className="text-xs text-muted-foreground">Scannable QR code with asset URL and metadata</p>
+                              </div>
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    const link = document.createElement('a')
+                                    link.href = qrCodePreview
+                                    link.download = `${form.getValues('assetTagId') || 'asset'}.png`
+                                    link.click()
+                                  }}
+                                  className="text-green-600 border-green-200 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/20"
+                                >
+                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                  </svg>
+                                  Download QR
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={removeQrCode}
+                                  className="text-destructive border-destructive/20 hover:bg-destructive/10"
+                                >
+                                  <X className="h-4 w-4 mr-2" />
+                                  Remove QR
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1348,11 +1692,11 @@ export default function AddAssetPage() {
                   <Input
                     id="assetIdForImage"
                     placeholder="Enter Asset ID (e.g., LAPTOP-001)"
-                    value={(form.getValues('assetTagId') as string) || ''}
-                    onChange={(e) => form.setValue('assetTagId', e.target.value)}
+                    value={imageDialogAssetId}
+                    onChange={(e) => setImageDialogAssetId(e.target.value)}
                   />
                   <p className="text-sm text-muted-foreground">
-                    The image will be renamed to: <span className="font-mono font-medium">{(form.getValues('assetTagId') as string) || 'ASSET-ID'}.jpg</span>
+                    The image will be renamed to: <span className="font-mono font-medium">{imageDialogAssetId || 'ASSET-ID'}.jpg</span>
                   </p>
                 </div>
               </div>
@@ -1365,9 +1709,54 @@ export default function AddAssetPage() {
                 </Button>
                 <Button 
                   onClick={handleAssetIdDialogConfirm}
-                  disabled={!(form.getValues('assetTagId') as string) || ((form.getValues('assetTagId') as string) || '').trim() === ''}
+                  disabled={!imageDialogAssetId || imageDialogAssetId.trim() === ''}
                 >
                   Upload Image
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* QR Asset ID Required Dialog */}
+          <Dialog open={showQrAssetIdDialog} onOpenChange={setShowQrAssetIdDialog}>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+                  </svg>
+                  Asset ID Required
+                </DialogTitle>
+                <DialogDescription>
+                  Please enter an Asset ID before generating a QR code. The QR code will contain the Asset ID and link to the asset page.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="assetIdForQR">Asset ID</Label>
+                  <Input
+                    id="assetIdForQR"
+                    placeholder="Enter Asset ID (e.g., LAPTOP-001)"
+                    value={qrDialogAssetId}
+                    onChange={(e) => setQrDialogAssetId(e.target.value)}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    The QR code will be named: <span className="font-mono font-medium">{qrDialogAssetId || 'ASSET-ID'}.png</span>
+                  </p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={handleQrAssetIdDialogCancel}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleQrAssetIdDialogConfirm}
+                  disabled={!qrDialogAssetId || qrDialogAssetId.trim() === ''}
+                >
+                  Generate QR Code
                 </Button>
               </DialogFooter>
             </DialogContent>
