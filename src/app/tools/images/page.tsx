@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -54,6 +55,7 @@ interface AssetImage {
 }
 
 export default function ImagesPage() {
+  const { formatDate } = useSystemSettings()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterAsset, setFilterAsset] = useState("all")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
@@ -356,7 +358,7 @@ export default function ImagesPage() {
                               )}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              {formatFileSize(image.size)} • {new Date(image.uploadedDate).toLocaleDateString()}
+                              {formatFileSize(image.size)} • {formatDate(image.uploadedDate)}
                             </div>
                           </div>
                         </CardContent>
@@ -414,7 +416,7 @@ export default function ImagesPage() {
                               </div>
                             </TableCell>
                             <TableCell>{formatFileSize(image.size)}</TableCell>
-                            <TableCell>{new Date(image.uploadedDate).toLocaleDateString()}</TableCell>
+                            <TableCell>{formatDate(image.uploadedDate)}</TableCell>
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Button

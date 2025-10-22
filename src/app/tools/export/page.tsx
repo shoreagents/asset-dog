@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -12,10 +13,10 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Progress } from "@/components/ui/progress"
+import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Select,
@@ -29,128 +30,73 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { Download, ArrowLeft, FileSpreadsheet, CheckCircle, AlertCircle } from "lucide-react"
+import { Download, ArrowLeft, FileSpreadsheet, FileText, AlertTriangle, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { DataManager } from "@/lib/lists-data"
-
-interface ExportOptions {
-  format: 'csv' | 'xlsx'
-  includeFields: {
-    basic: boolean
-    financial: boolean
-    assignment: boolean
-    technical: boolean
-    additional: boolean
-  }
-  dateRange: {
-    start: string
-    end: string
-  }
-  filters: {
-    category: string
-    status: string
-    department: string
-  }
-}
 
 export default function ExportPage() {
-  const [isExporting, setIsExporting] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const [exportOptions, setExportOptions] = useState<ExportOptions>({
-    format: 'csv',
-    includeFields: {
-      basic: true,
-      financial: true,
-      assignment: true,
-      technical: true,
-      additional: true
-    },
-    dateRange: {
-      start: '',
-      end: ''
-    },
-    filters: {
-      category: 'all',
-      status: 'all',
-      department: 'all'
-    }
+  const { formatDate, formatCurrency } = useSystemSettings()
+  const [format, setFormat] = useState<'csv' | 'xlsx'>('csv')
+  const [exporting, setExporting] = useState(false)
+  const [includeFields, setIncludeFields] = useState({
+    basic: true,
+    financial: true,
+    location: true,
+    assignment: true,
+    dates: true,
+    custom: true
   })
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterCategory, setFilterCategory] = useState<string>('all')
 
   const handleExport = async () => {
-    setIsExporting(true)
-    setProgress(0)
-
+    setExporting(true)
+    
     try {
-      const dataManager = DataManager.getInstance()
-      const assets = dataManager.getAllAssets()
+      const queryParams = new URLSearchParams({
+        format,
+        status: filterStatus,
+        category: filterCategory,
+        ...Object.fromEntries(
+          Object.entries(includeFields).map(([key, value]) => [key, value.toString()])
+        )
+      })
 
-      // Simulate export process
-      for (let i = 0; i <= 100; i += 10) {
-        setProgress(i)
-        await new Promise(resolve => setTimeout(resolve, 100))
+      const response = await fetch(`/api/export/assets?${queryParams}`)
+      
+      if (!response.ok) {
+        throw new Error('Export failed')
       }
 
-      // Generate CSV content
-      const headers = ['Asset ID', 'Name', 'Category', 'Location', 'Status', 'Value', 'Purchase Date', 'Assigned To', 'Department', 'Serial Number', 'Manufacturer', 'Model', 'Description', 'Notes']
-      const csvContent = [
-        headers.join(','),
-        ...assets.map(asset => [
-          asset.id,
-          `"${asset.name}"`,
-          `"${asset.category}"`,
-          `"${asset.location}"`,
-          `"${asset.status}"`,
-          asset.value,
-          asset.purchaseDate,
-          `"${asset.assignedTo || ''}"`,
-          `"${asset.department}"`,
-          `"${asset.serialNumber || ''}"`,
-          `"${asset.manufacturer || ''}"`,
-          `"${asset.model || ''}"`,
-          `"${asset.description || ''}"`,
-          `"${asset.notes || ''}"`
-        ].join(','))
-      ].join('\n')
-
-      // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const blob = await response.blob()
       const url = window.URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `assets-export-${new Date().toISOString().split('T')[0]}.csv`
+      a.download = `assets_export_${new Date().toISOString().split('T')[0]}.${format}`
+      document.body.appendChild(a)
       a.click()
+      document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
-
-      toast.success(`Successfully exported ${assets.length} assets!`)
+      
+      toast.success(`Successfully exported assets as ${format.toUpperCase()}!`)
     } catch (error) {
-      console.error("Error during export:", error)
-      toast.error("Export failed. Please try again.")
+      console.error('Export error:', error)
+      toast.error("Failed to export assets")
     } finally {
-      setIsExporting(false)
+      setExporting(false)
     }
-  }
-
-  const handleFieldChange = (field: keyof ExportOptions['includeFields'], checked: boolean) => {
-    setExportOptions(prev => ({
-      ...prev,
-      includeFields: {
-        ...prev.includeFields,
-        [field]: checked
-      }
-    }))
   }
 
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[collapsible=icon]]/sidebar-wrapper:h-12">
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
             <div className="flex items-center gap-2">
               <Download className="h-5 w-5" />
-              <h1 className="text-lg font-semibold">Export</h1>
+              <h1 className="text-lg font-semibold">Export Assets</h1>
             </div>
           </div>
         </header>
@@ -186,212 +132,210 @@ export default function ExportPage() {
                 <div>
                   <h1 className="text-3xl font-bold tracking-tight">Export Assets</h1>
                   <p className="text-muted-foreground">
-                    Download asset data in Excel or CSV for analysis or backups
+                    Download asset data in CSV or Excel format
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Export Options */}
+            {/* Export Format */}
             <Card>
               <CardHeader>
-                <CardTitle>Export Options</CardTitle>
+                <CardTitle>Export Format</CardTitle>
                 <CardDescription>
-                  Configure what data to include in your export
+                  Choose the file format for your export
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {/* Format Selection */}
-                <div className="space-y-2">
-                  <Label>Export Format</Label>
-                  <Select
-                    value={exportOptions.format}
-                    onValueChange={(value: 'csv' | 'xlsx') => 
-                      setExportOptions(prev => ({ ...prev, format: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="csv">CSV (Comma Separated Values)</SelectItem>
-                      <SelectItem value="xlsx">Excel (XLSX)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Fields to Include */}
-                <div className="space-y-4">
-                  <Label>Fields to Include</Label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="basic"
-                        checked={exportOptions.includeFields.basic}
-                        onCheckedChange={(checked) => handleFieldChange('basic', checked as boolean)}
-                      />
-                      <Label htmlFor="basic" className="text-sm font-normal">
-                        Basic Information (ID, Name, Category, Location, Status)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="financial"
-                        checked={exportOptions.includeFields.financial}
-                        onCheckedChange={(checked) => handleFieldChange('financial', checked as boolean)}
-                      />
-                      <Label htmlFor="financial" className="text-sm font-normal">
-                        Financial Information (Value, Purchase Date)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="assignment"
-                        checked={exportOptions.includeFields.assignment}
-                        onCheckedChange={(checked) => handleFieldChange('assignment', checked as boolean)}
-                      />
-                      <Label htmlFor="assignment" className="text-sm font-normal">
-                        Assignment Information (Assigned To, Department)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="technical"
-                        checked={exportOptions.includeFields.technical}
-                        onCheckedChange={(checked) => handleFieldChange('technical', checked as boolean)}
-                      />
-                      <Label htmlFor="technical" className="text-sm font-normal">
-                        Technical Information (Serial Number, Manufacturer, Model)
-                      </Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        id="additional"
-                        checked={exportOptions.includeFields.additional}
-                        onCheckedChange={(checked) => handleFieldChange('additional', checked as boolean)}
-                      />
-                      <Label htmlFor="additional" className="text-sm font-normal">
-                        Additional Information (Description, Notes)
-                      </Label>
-                    </div>
+              <CardContent>
+                <RadioGroup value={format} onValueChange={(value: 'csv' | 'xlsx') => setFormat(value)}>
+                  <div className="flex items-center space-x-2 p-4 border rounded-lg hover:bg-accent cursor-pointer">
+                    <RadioGroupItem value="csv" id="csv" />
+                    <Label htmlFor="csv" className="flex items-center gap-2 cursor-pointer flex-1">
+                      <FileText className="h-5 w-5 text-green-600" />
+                      <div>
+                        <div className="font-medium">CSV (Comma-Separated Values)</div>
+                        <div className="text-sm text-muted-foreground">
+                          Universal format compatible with Excel, Google Sheets, and most applications
+                        </div>
+                      </div>
+                    </Label>
                   </div>
-                </div>
-
-                {/* Filters */}
-                <div className="space-y-4">
-                  <Label>Filters (Optional)</Label>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="category-filter" className="text-sm">Category</Label>
-                      <Select
-                        value={exportOptions.filters.category}
-                        onValueChange={(value) => 
-                          setExportOptions(prev => ({ 
-                            ...prev, 
-                            filters: { ...prev.filters, category: value }
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Categories</SelectItem>
-                          <SelectItem value="IT Equipment">IT Equipment</SelectItem>
-                          <SelectItem value="Furniture">Furniture</SelectItem>
-                          <SelectItem value="Vehicles">Vehicles</SelectItem>
-                          <SelectItem value="Office Equipment">Office Equipment</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="status-filter" className="text-sm">Status</Label>
-                      <Select
-                        value={exportOptions.filters.status}
-                        onValueChange={(value) => 
-                          setExportOptions(prev => ({ 
-                            ...prev, 
-                            filters: { ...prev.filters, status: value }
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Statuses</SelectItem>
-                          <SelectItem value="Available">Available</SelectItem>
-                          <SelectItem value="In Use">In Use</SelectItem>
-                          <SelectItem value="Maintenance">Maintenance</SelectItem>
-                          <SelectItem value="Disposed">Disposed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="department-filter" className="text-sm">Department</Label>
-                      <Select
-                        value={exportOptions.filters.department}
-                        onValueChange={(value) => 
-                          setExportOptions(prev => ({ 
-                            ...prev, 
-                            filters: { ...prev.filters, department: value }
-                          }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Departments</SelectItem>
-                          <SelectItem value="IT">IT</SelectItem>
-                          <SelectItem value="Operations">Operations</SelectItem>
-                          <SelectItem value="Sales">Sales</SelectItem>
-                          <SelectItem value="Administration">Administration</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  <div className="flex items-center space-x-2 p-4 border rounded-lg hover:bg-accent cursor-pointer">
+                    <RadioGroupItem value="xlsx" id="xlsx" />
+                    <Label htmlFor="xlsx" className="flex items-center gap-2 cursor-pointer flex-1">
+                      <FileSpreadsheet className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <div className="font-medium">Excel (.xlsx)</div>
+                        <div className="text-sm text-muted-foreground">
+                          Native Excel format with formatting and multiple sheets support
+                        </div>
+                      </div>
+                    </Label>
                   </div>
-                </div>
-
-                {/* Export Button */}
-                <div className="flex justify-end">
-                  <Button
-                    onClick={handleExport}
-                    disabled={isExporting}
-                    className="flex items-center gap-2"
-                  >
-                    {isExporting ? (
-                      <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        Exporting...
-                      </>
-                    ) : (
-                      <>
-                        <Download className="h-4 w-4" />
-                        Export Assets
-                      </>
-                    )}
-                  </Button>
-                </div>
-
-                {isExporting && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>Preparing export...</span>
-                      <span>{progress}%</span>
-                    </div>
-                    <Progress value={progress} className="w-full" />
-                  </div>
-                )}
+                </RadioGroup>
               </CardContent>
             </Card>
 
-            {/* Export Information */}
+            {/* Filters */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Filters</CardTitle>
+                <CardDescription>
+                  Filter assets to export only specific items
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Status</Label>
+                    <Select value={filterStatus} onValueChange={setFilterStatus}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Statuses</SelectItem>
+                        <SelectItem value="Available">Available</SelectItem>
+                        <SelectItem value="In Use">In Use</SelectItem>
+                        <SelectItem value="Maintenance">Maintenance</SelectItem>
+                        <SelectItem value="Retired">Retired</SelectItem>
+                        <SelectItem value="Lost">Lost</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Category</Label>
+                    <Select value={filterCategory} onValueChange={setFilterCategory}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Categories</SelectItem>
+                        <SelectItem value="IT Equipment">IT Equipment</SelectItem>
+                        <SelectItem value="Furniture">Furniture</SelectItem>
+                        <SelectItem value="Vehicle">Vehicle</SelectItem>
+                        <SelectItem value="Tools">Tools</SelectItem>
+                        <SelectItem value="Office Equipment">Office Equipment</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Field Selection */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Fields to Include</CardTitle>
+                <CardDescription>
+                  Select which groups of fields to include in the export
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="basic"
+                    checked={includeFields.basic}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, basic: !!checked})}
+                  />
+                  <Label htmlFor="basic" className="cursor-pointer">
+                    <div className="font-medium">Basic Information</div>
+                    <div className="text-sm text-muted-foreground">Asset Tag ID, Name, Description, Serial Number</div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="financial"
+                    checked={includeFields.financial}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, financial: !!checked})}
+                  />
+                  <Label htmlFor="financial" className="cursor-pointer">
+                    <div className="font-medium">Financial Information</div>
+                    <div className="text-sm text-muted-foreground">Cost, Purchase Date, Depreciation</div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="location"
+                    checked={includeFields.location}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, location: !!checked})}
+                  />
+                  <Label htmlFor="location" className="cursor-pointer">
+                    <div className="font-medium">Location Information</div>
+                    <div className="text-sm text-muted-foreground">Location, Site, Department</div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="assignment"
+                    checked={includeFields.assignment}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, assignment: !!checked})}
+                  />
+                  <Label htmlFor="assignment" className="cursor-pointer">
+                    <div className="font-medium">Assignment Information</div>
+                    <div className="text-sm text-muted-foreground">Assigned To, Status, Asset Type</div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="dates"
+                    checked={includeFields.dates}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, dates: !!checked})}
+                  />
+                  <Label htmlFor="dates" className="cursor-pointer">
+                    <div className="font-medium">Date Information</div>
+                    <div className="text-sm text-muted-foreground">Created At, Updated At, Date Acquired</div>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="custom"
+                    checked={includeFields.custom}
+                    onCheckedChange={(checked) => setIncludeFields({...includeFields, custom: !!checked})}
+                  />
+                  <Label htmlFor="custom" className="cursor-pointer">
+                    <div className="font-medium">Custom Fields</div>
+                    <div className="text-sm text-muted-foreground">Brand, Model, Manufacturer, Notes</div>
+                  </Label>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Export Button */}
+            <Card>
+              <CardContent className="p-6">
+                <Button
+                  onClick={handleExport}
+                  disabled={exporting}
+                  className="w-full flex items-center gap-2"
+                  size="lg"
+                >
+                  {exporting ? (
+                    <>
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Exporting...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-5 w-5" />
+                      Export Assets
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Information */}
             <Alert>
-              <CheckCircle className="h-4 w-4" />
+              <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
-                <strong>Export Information:</strong> The exported file will contain all asset data based on your selected options. 
-                Large exports may take a few moments to process. The file will be downloaded automatically when ready.
+                <strong>Export Information:</strong>
+                <ul className="list-disc list-inside mt-2 space-y-1">
+                  <li>The export will include all assets matching your filter criteria</li>
+                  <li>CSV format is recommended for maximum compatibility</li>
+                  <li>Excel format provides better formatting and formula support</li>
+                  <li>You can open the exported file in Excel, Google Sheets, or any spreadsheet application</li>
+                  <li>Use the exported data for reporting, analysis, or as a backup</li>
+                </ul>
               </AlertDescription>
             </Alert>
           </div>
@@ -400,6 +344,3 @@ export default function ExportPage() {
     </SidebarProvider>
   )
 }
-
-
-

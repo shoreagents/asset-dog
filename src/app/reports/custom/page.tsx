@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSystemSettings } from "@/contexts/system-settings-context";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   Breadcrumb,
@@ -118,6 +119,7 @@ const statusOptions = [
 const uniqueBrands = [...new Set(assetData.map(asset => asset.brand))];
 
 export default function CustomReportsPage() {
+  const { formatCurrency } = useSystemSettings();
   // Search and filter state
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -298,7 +300,7 @@ export default function CustomReportsPage() {
                             <TableCell>{asset.description}</TableCell>
                             <TableCell>{asset.brand}</TableCell>
                             <TableCell>{asset.purchaseDate}</TableCell>
-                            <TableCell>${asset.cost.toLocaleString()}</TableCell>
+                            <TableCell>{formatCurrency(asset.cost)}</TableCell>
                             <TableCell>
                               <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                                 asset.status === 'Available' ? 'bg-green-100 text-green-800' :

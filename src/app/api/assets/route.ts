@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
       location: body.location || "",
       site: body.site || "",
       status: body.status || "Available",
-      cost: body.value || 0,
+      cost: body.cost || body.value || 0,
       purchase_date: body.purchaseDate || null,
       date_acquired: body.dateAcquired || null,
       assigned_to: body.assignedTo || "",
@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
       serial_number: body.serialNumber || "",
       manufacturer: body.manufacturer || "",
       notes: body.notes || "",
+      asset_type: body.assetType || "",
       image_url: body.image_url || body.imageUrl || "",
       image_file_name: body.image_file_name || body.imageFileName || ""
     }

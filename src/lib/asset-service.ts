@@ -34,23 +34,24 @@ export interface CreateAssetData {
   asset_tag_id: string
   name?: string
   description?: string
-  serial_number?: string
+  serialNumber?: string
   brand?: string
   model?: string
   cost?: number
-  purchase_date?: string
-  date_acquired?: string
+  purchaseDate?: string
+  dateAcquired?: string
   category?: string
-  sub_category?: string
+  subCategory?: string
   location?: string
   site?: string
   department?: string
   status?: 'Available' | 'Check Out' | 'Move' | 'Reserve' | 'Lease' | 'Dispose' | 'Maintenance'
-  assigned_to?: string
-  asset_type?: string
+  assignedTo?: string
+  assetType?: string
   notes?: string
-  image_url?: string
-  image_file_name?: string
+  imageUrl?: string
+  imageFileName?: string
+  manufacturer?: string
 }
 
 class AssetService {
@@ -126,13 +127,20 @@ class AssetService {
   }
 
   // Upload image to Supabase Storage
-  async uploadImage(file: File, filePath: string): Promise<{ data?: { publicUrl: string }; error?: any }> {
+  async uploadImage(file: File, filePath: string, bucket: string = 'asset-images'): Promise<{ data?: { publicUrl: string }; error?: any }> {
     try {
       
       // Use API endpoint for server-side upload
       const formData = new FormData()
       formData.append('file', file)
       formData.append('filePath', filePath)
+      formData.append('bucket', bucket)
+
+      console.log('=== ASSET SERVICE UPLOAD DEBUG ===')
+      console.log('File:', file.name, file.type, file.size)
+      console.log('File path:', filePath)
+      console.log('Bucket:', bucket)
+      console.log('==================================')
 
       const response = await fetch('/api/assets/image', {
         method: 'POST',

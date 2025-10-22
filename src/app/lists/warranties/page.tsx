@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,7 @@ import { WarrantyFormDialog } from "@/components/lists/warranty-form-dialog"
 import { DeleteConfirmDialog } from "@/components/lists/delete-confirm-dialog"
 
 export default function WarrantiesListPage() {
+  const { formatCurrency, formatDate } = useSystemSettings()
   const [warranties, setWarranties] = useState<Warranty[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -338,10 +340,10 @@ export default function WarrantiesListPage() {
                               {warranty.status}
                             </Badge>
                           </TableCell>
-                          <TableCell>{new Date(warranty.startDate).toLocaleDateString()}</TableCell>
-                          <TableCell>{new Date(warranty.endDate).toLocaleDateString()}</TableCell>
+                          <TableCell>{formatDate(warranty.startDate)}</TableCell>
+                          <TableCell>{formatDate(warranty.endDate)}</TableCell>
                           <TableCell className="font-mono text-sm">{warranty.referenceNumber}</TableCell>
-                          <TableCell>${(warranty.cost || 0).toFixed(2)}</TableCell>
+                          <TableCell>{formatCurrency(warranty.cost || 0)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Button

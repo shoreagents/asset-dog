@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useRef } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -12,8 +12,6 @@ import {
 } from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -30,205 +28,114 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { Upload, ArrowLeft, FileSpreadsheet, CheckCircle, AlertCircle, Download } from "lucide-react"
+import { Upload, ArrowLeft, FileSpreadsheet, CheckCircle, XCircle, AlertTriangle, Download } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { DataManager } from "@/lib/lists-data"
 
-interface ImportedAsset {
-  assetId: string
-  name: string
-  category: string
-  location: string
-  status: string
-  value: number
-  purchaseDate: string
-  assignedTo?: string
-  department?: string
-  serialNumber?: string
-  manufacturer?: string
-  model?: string
-  description?: string
-  notes?: string
+interface ImportRow {
+  row: number
+  data: Record<string, any>
+  status: 'pending' | 'success' | 'error'
+  error?: string
 }
 
 export default function ImportPage() {
   const [file, setFile] = useState<File | null>(null)
-  const [importedData, setImportedData] = useState<ImportedAsset[]>([])
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [isImporting, setIsImporting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importResults, setImportResults] = useState<ImportRow[]>([])
   const [progress, setProgress] = useState(0)
-  const [errors, setErrors] = useState<string[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0]
-    if (!selectedFile) return
-
-    if (!selectedFile.name.match(/\.(csv|xlsx|xls)$/i)) {
-      toast.error("Please select a valid CSV or Excel file")
-      return
-    }
-
-    setFile(selectedFile)
-    setImportedData([])
-    setErrors([])
-    processFile(selectedFile)
-  }, [])
-
-  const processFile = async (file: File) => {
-    setIsProcessing(true)
-    setProgress(0)
-
-    try {
-      // Simulate file processing
-      for (let i = 0; i <= 100; i += 10) {
-        setProgress(i)
-        await new Promise(resolve => setTimeout(resolve, 100))
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0]
+    if (selectedFile) {
+      const validTypes = ['text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']
+      if (validTypes.includes(selectedFile.type) || selectedFile.name.endsWith('.csv') || selectedFile.name.endsWith('.xlsx')) {
+        setFile(selectedFile)
+        setImportResults([])
+        setProgress(0)
+        toast.success(`File "${selectedFile.name}" selected`)
+      } else {
+        toast.error("Please select a valid CSV or Excel file")
+        e.target.value = ''
       }
-
-      // Mock imported data - in real implementation, this would parse the actual file
-      const mockData: ImportedAsset[] = [
-        {
-          assetId: "AST-101",
-          name: "Dell Laptop XPS 13",
-          category: "IT Equipment",
-          location: "IT Storage Room",
-          status: "Available",
-          value: 1200,
-          purchaseDate: "2024-01-15",
-          assignedTo: "John Doe",
-          department: "IT",
-          serialNumber: "DLX2024001",
-          manufacturer: "Dell Technologies",
-          model: "XPS 13",
-          description: "High-performance laptop for development",
-          notes: "New purchase"
-        },
-        {
-          assetId: "AST-102",
-          name: "Office Chair Ergonomic",
-          category: "Furniture",
-          location: "Office Floor 1",
-          status: "In Use",
-          value: 350,
-          purchaseDate: "2024-01-20",
-          assignedTo: "Jane Smith",
-          department: "Operations",
-          serialNumber: "CHAIR2024002",
-          manufacturer: "OfficeMax",
-          model: "Ergonomic Pro",
-          description: "Ergonomic office chair with lumbar support",
-          notes: "Assigned to new employee"
-        },
-        {
-          assetId: "AST-103",
-          name: "HP LaserJet Printer",
-          category: "Office Equipment",
-          location: "Office Floor 2",
-          status: "Available",
-          value: 450,
-          purchaseDate: "2024-02-01",
-          department: "Administration",
-          serialNumber: "HP2024003",
-          manufacturer: "HP Inc.",
-          model: "LaserJet Pro",
-          description: "Network printer for office use",
-          notes: "Shared office printer"
-        }
-      ]
-
-      setImportedData(mockData)
-      toast.success("File processed successfully!")
-    } catch (error) {
-      console.error("Error processing file:", error)
-      toast.error("Error processing file. Please try again.")
-      setErrors(["Failed to process file. Please check the file format and try again."])
-    } finally {
-      setIsProcessing(false)
     }
   }
 
   const handleImport = async () => {
-    if (importedData.length === 0) {
-      toast.error("No data to import")
+    if (!file) {
+      toast.error("Please select a file first")
       return
     }
 
-    setIsImporting(true)
+    setImporting(true)
     setProgress(0)
-
+    
     try {
-      const dataManager = DataManager.getInstance()
-      let successCount = 0
-      let errorCount = 0
+      const formData = new FormData()
+      formData.append('file', file)
 
-      for (let i = 0; i < importedData.length; i++) {
-        try {
-          await dataManager.addAsset({
-            name: importedData[i].name,
-            category: importedData[i].category,
-            location: importedData[i].location,
-            status: importedData[i].status as "Available" | "In Use" | "Maintenance" | "Disposed",
-            value: importedData[i].value,
-            purchaseDate: importedData[i].purchaseDate,
-            assignedTo: importedData[i].assignedTo || null,
-            department: importedData[i].department || "Unassigned",
-            serialNumber: importedData[i].serialNumber,
-            manufacturer: importedData[i].manufacturer,
-            model: importedData[i].model,
-            description: importedData[i].description,
-            notes: importedData[i].notes
-          })
-          successCount++
-        } catch (error) {
-          errorCount++
-          console.error(`Error importing asset ${importedData[i].assetId}:`, error)
-        }
+      const response = await fetch('/api/import/assets', {
+        method: 'POST',
+        body: formData,
+      })
 
-        setProgress(((i + 1) / importedData.length) * 100)
-        await new Promise(resolve => setTimeout(resolve, 100))
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || 'Import failed')
       }
 
-      if (successCount > 0) {
+      const result = await response.json()
+      
+      setImportResults(result.results || [])
+      setProgress(100)
+      
+      const successCount = result.results.filter((r: ImportRow) => r.status === 'success').length
+      const errorCount = result.results.filter((r: ImportRow) => r.status === 'error').length
+      
+      if (errorCount === 0) {
         toast.success(`Successfully imported ${successCount} assets!`)
+      } else {
+        toast.warning(`Imported ${successCount} assets with ${errorCount} errors`)
       }
-      if (errorCount > 0) {
-        toast.error(`${errorCount} assets failed to import`)
-      }
-
-      // Clear the imported data after successful import
-      setImportedData([])
-      setFile(null)
-    } catch (error) {
-      console.error("Error during import:", error)
-      toast.error("Import failed. Please try again.")
+    } catch (error: any) {
+      console.error('Import error:', error)
+      toast.error(error.message || "Failed to import assets")
     } finally {
-      setIsImporting(false)
+      setImporting(false)
     }
   }
 
   const downloadTemplate = () => {
-    const csvContent = "Asset ID,Name,Category,Location,Status,Value,Purchase Date,Assigned To,Department,Serial Number,Manufacturer,Model,Description,Notes\nAST-001,MacBook Pro 16\",IT Equipment,IT Storage Room,Available,2500,2024-01-15,John Doe,IT,MBP2024001,Apple Inc.,MacBook Pro 16-inch,High-performance laptop,New purchase"
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' })
+    const template = `Asset Tag ID,Asset Name,Description,Serial Number,Brand,Model,Cost,Purchase Date,Date Acquired,Category,Sub Category,Location,Site,Department,Status,Assigned To,Asset Type,Notes,Manufacturer
+AST-001,Sample Asset,Sample description,SN12345,Sample Brand,Model X,1000.00,2024-01-15,2024-01-15,IT Equipment,Laptop,Office Floor 1,Main Office,IT Department,Available,John Doe,Equipment,Sample notes,Sample Manufacturer`
+
+    const blob = new Blob([template], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = 'asset-import-template.csv'
+    a.download = 'asset_import_template.csv'
+    document.body.appendChild(a)
     a.click()
+    document.body.removeChild(a)
     window.URL.revokeObjectURL(url)
+    
+    toast.success("Template downloaded successfully!")
   }
+
+  const successCount = importResults.filter(r => r.status === 'success').length
+  const errorCount = importResults.filter(r => r.status === 'error').length
 
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
-        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[collapsible=icon]]/sidebar-wrapper:h-12">
+        <header className="flex h-16 shrink-0 items-center gap-2 transition-[width,height] ease-linear group-has-[[data-collapsible=icon]]/sidebar-wrapper:h-12">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
             <div className="flex items-center gap-2">
               <Upload className="h-5 w-5" />
-              <h1 className="text-lg font-semibold">Import</h1>
+              <h1 className="text-lg font-semibold">Import Assets</h1>
             </div>
           </div>
         </header>
@@ -264,85 +171,117 @@ export default function ImportPage() {
                 <div>
                   <h1 className="text-3xl font-bold tracking-tight">Import Assets</h1>
                   <p className="text-muted-foreground">
-                    Upload bulk asset data from spreadsheets (CSV/Excel)
+                    Upload bulk asset data from CSV or Excel files
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* File Upload Section */}
+            {/* Download Template */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Download Template</CardTitle>
+                <CardDescription>
+                  Get started by downloading our CSV template with the correct format
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button onClick={downloadTemplate} variant="outline" className="flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Download CSV Template
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* File Upload */}
             <Card>
               <CardHeader>
                 <CardTitle>Upload File</CardTitle>
                 <CardDescription>
-                  Select a CSV or Excel file containing asset data
+                  Select a CSV or Excel file containing your asset data
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="file-upload">Choose File</Label>
-                  <Input
-                    id="file-upload"
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    onChange={handleFileUpload}
-                    disabled={isProcessing || isImporting}
-                  />
-                </div>
-
-                {file && (
-                  <div className="flex items-center gap-2 p-3 border rounded-lg bg-muted/50">
-                    <FileSpreadsheet className="h-4 w-4" />
-                    <span className="text-sm font-medium">{file.name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      ({(file.size / 1024).toFixed(1)} KB)
-                    </span>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,.xlsx,.xls"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      id="file-upload"
+                    />
+                    <Button
+                      onClick={() => fileInputRef.current?.click()}
+                      variant="outline"
+                      className="flex items-center gap-2"
+                    >
+                      <FileSpreadsheet className="h-4 w-4" />
+                      Choose File
+                    </Button>
+                    {file && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        {file.name} ({(file.size / 1024).toFixed(2)} KB)
+                      </div>
+                    )}
                   </div>
-                )}
 
-                {isProcessing && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span>Processing file...</span>
-                      <span>{progress}%</span>
+                  {file && (
+                    <Button
+                      onClick={handleImport}
+                      disabled={importing}
+                      className="w-full flex items-center gap-2"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {importing ? "Importing..." : "Start Import"}
+                    </Button>
+                  )}
+
+                  {importing && (
+                    <div className="space-y-2">
+                      <Progress value={progress} className="w-full" />
+                      <p className="text-sm text-muted-foreground text-center">
+                        Processing... {progress}%
+                      </p>
                     </div>
-                    <Progress value={progress} className="w-full" />
-                  </div>
-                )}
-
-                {errors.length > 0 && (
-                  <Alert variant="destructive">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>
-                      <ul className="list-disc list-inside space-y-1">
-                        {errors.map((error, index) => (
-                          <li key={index}>{error}</li>
-                        ))}
-                      </ul>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="flex gap-2">
-                  <Button
-                    onClick={downloadTemplate}
-                    variant="outline"
-                    className="flex items-center gap-2"
-                  >
-                    <Download className="h-4 w-4" />
-                    Download Template
-                  </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Preview Section */}
-            {importedData.length > 0 && (
+            {/* Import Results Summary */}
+            {importResults.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold">{importResults.length}</div>
+                    <div className="text-sm text-muted-foreground">Total Rows</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-green-600">{successCount}</div>
+                    <div className="text-sm text-muted-foreground">Successful</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <div className="text-2xl font-bold text-red-600">{errorCount}</div>
+                    <div className="text-sm text-muted-foreground">Failed</div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Import Results Details */}
+            {importResults.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Preview Data</CardTitle>
+                  <CardTitle>Import Results</CardTitle>
                   <CardDescription>
-                    Review the data before importing. {importedData.length} assets found.
+                    Detailed results for each row in the import file
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -350,81 +289,65 @@ export default function ImportPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Asset ID</TableHead>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Category</TableHead>
-                          <TableHead>Location</TableHead>
+                          <TableHead>Row</TableHead>
+                          <TableHead>Asset Tag ID</TableHead>
+                          <TableHead>Asset Name</TableHead>
                           <TableHead>Status</TableHead>
-                          <TableHead>Value</TableHead>
-                          <TableHead>Assigned To</TableHead>
+                          <TableHead>Message</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {importedData.map((asset, index) => (
-                          <TableRow key={index}>
-                            <TableCell className="font-medium">{asset.assetId}</TableCell>
-                            <TableCell>{asset.name}</TableCell>
-                            <TableCell>{asset.category}</TableCell>
-                            <TableCell>{asset.location}</TableCell>
+                        {importResults.map((result) => (
+                          <TableRow key={result.row}>
+                            <TableCell className="font-medium">{result.row}</TableCell>
+                            <TableCell>{result.data['Asset Tag ID'] || '-'}</TableCell>
+                            <TableCell>{result.data['Asset Name'] || '-'}</TableCell>
                             <TableCell>
-                              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                asset.status === 'Available' ? 'bg-green-100 text-green-800' :
-                                asset.status === 'In Use' ? 'bg-blue-100 text-blue-800' :
-                                asset.status === 'Maintenance' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-red-100 text-red-800'
-                              }`}>
-                                {asset.status}
-                              </span>
+                              {result.status === 'success' ? (
+                                <div className="flex items-center gap-1 text-green-600">
+                                  <CheckCircle className="h-4 w-4" />
+                                  Success
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-red-600">
+                                  <XCircle className="h-4 w-4" />
+                                  Error
+                                </div>
+                              )}
                             </TableCell>
-                            <TableCell>${asset.value.toLocaleString()}</TableCell>
-                            <TableCell>{asset.assignedTo || 'Unassigned'}</TableCell>
+                            <TableCell className={result.status === 'error' ? 'text-red-600' : ''}>
+                              {result.error || 'Imported successfully'}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   </ScrollArea>
-
-                  <div className="flex justify-end gap-2 mt-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setImportedData([])
-                        setFile(null)
-                        setErrors([])
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleImport}
-                      disabled={isImporting}
-                      className="flex items-center gap-2"
-                    >
-                      {isImporting ? (
-                        <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                          Importing...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="h-4 w-4" />
-                          Import {importedData.length} Assets
-                        </>
-                      )}
-                    </Button>
-                  </div>
-
-                  {isImporting && (
-                    <div className="mt-4 space-y-2">
-                      <div className="flex items-center justify-between text-sm">
-                        <span>Importing assets...</span>
-                        <span>{progress.toFixed(0)}%</span>
-                      </div>
-                      <Progress value={progress} className="w-full" />
-                    </div>
-                  )}
                 </CardContent>
               </Card>
+            )}
+
+            {/* Instructions */}
+            {importResults.length === 0 && (
+              <Alert>
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <strong>Import Instructions:</strong>
+                  <ol className="list-decimal list-inside mt-2 space-y-1">
+                    <li>Download the CSV template to see the required format</li>
+                    <li>Fill in your asset data following the template structure</li>
+                    <li>Save your file as CSV or Excel (.xlsx)</li>
+                    <li>Upload the file using the &quot;Choose File&quot; button above</li>
+                    <li>Click &quot;Start Import&quot; to process your data</li>
+                    <li>Review the results and fix any errors if needed</li>
+                  </ol>
+                  <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md">
+                    <strong>Required Fields:</strong> Asset Tag ID, Asset Name
+                    <br />
+                    <strong>Optional Fields:</strong> Description, Serial Number, Brand, Model, Cost, Purchase Date, Category, Location, etc.
+                  </div>
+                </AlertDescription>
+              </Alert>
             )}
           </div>
         </ScrollArea>
@@ -432,6 +355,3 @@ export default function ImportPage() {
     </SidebarProvider>
   )
 }
-
-
-

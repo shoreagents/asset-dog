@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useRouter, useParams } from "next/navigation"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { getAssetById, getAllAssets } from "@/lib/centralized-assets"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
@@ -104,6 +105,7 @@ const locations = [
 ]
 
 export default function CheckInAssetPage() {
+  const { formatDate, formatCurrency } = useSystemSettings()
   const router = useRouter()
   const params = useParams()
   const assetId = params.id as string
@@ -277,7 +279,7 @@ export default function CheckInAssetPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="font-medium">Value:</span>
-                    <span>₱{asset.value.toLocaleString()}</span>
+                    <span>{formatCurrency(asset.value)}</span>
                   </div>
                   {asset.serialNumber && (
                     <div className="flex justify-between">
@@ -300,7 +302,7 @@ export default function CheckInAssetPage() {
                   {asset.checkedOutDate && (
                     <div className="flex justify-between">
                       <span className="font-medium">Checked Out:</span>
-                      <span>{new Date(asset.checkedOutDate).toLocaleDateString()}</span>
+                      <span>{formatDate(asset.checkedOutDate)}</span>
                     </div>
                   )}
                   {asset.purpose && (

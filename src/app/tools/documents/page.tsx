@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -53,6 +54,7 @@ interface Document {
 }
 
 export default function DocumentsPage() {
+  const { formatDate } = useSystemSettings()
   const [searchTerm, setSearchTerm] = useState("")
   const [filterType, setFilterType] = useState("all")
   const [filterAsset, setFilterAsset] = useState("all")
@@ -335,7 +337,7 @@ export default function DocumentsPage() {
                             </div>
                           </TableCell>
                           <TableCell>{formatFileSize(document.size)}</TableCell>
-                          <TableCell>{new Date(document.uploadedDate).toLocaleDateString()}</TableCell>
+                          <TableCell>{formatDate(document.uploadedDate)}</TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
                               <Button

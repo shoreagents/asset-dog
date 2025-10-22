@@ -41,7 +41,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { CalendarIcon, ArrowLeft, Save, Plus, X, Loader2, Upload, Image as ImageIcon } from "lucide-react"
+import { CalendarIcon, ArrowLeft, Save, Plus, X, Loader2, Upload, Image as ImageIcon, Download } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import { useForm } from "react-hook-form"
@@ -207,6 +207,32 @@ export default function AddAssetPage() {
         dataType: 'Text'
       },
       {
+        id: 'site',
+        name: 'site',
+        type: 'select',
+        label: 'Site',
+        description: 'Site where asset is located',
+        required: false,
+        included: true,
+        options: [],
+        placeholder: 'Select site',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'department',
+        name: 'department',
+        type: 'select',
+        label: 'Department',
+        description: 'Department responsible for the asset',
+        required: false,
+        included: true,
+        options: [],
+        placeholder: 'Select department',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
         id: 'assignedTo',
         name: 'assignedTo',
         type: 'select',
@@ -229,6 +255,18 @@ export default function AddAssetPage() {
         included: true,
         example: '04/09/2021',
         placeholder: 'Select purchase date',
+        isStandard: true
+      },
+      {
+        id: 'date-acquired',
+        name: 'dateAcquired',
+        type: 'date',
+        label: 'Date Acquired',
+        description: 'Date when asset was acquired',
+        required: false,
+        included: true,
+        example: '04/09/2021',
+        placeholder: 'Select acquisition date',
         isStandard: true
       },
       {
@@ -284,6 +322,43 @@ export default function AddAssetPage() {
         isStandard: true
       },
       {
+        id: 'manufacturer',
+        name: 'manufacturer',
+        type: 'select',
+        label: 'Manufacturer',
+        description: 'Manufacturer of the asset',
+        required: false,
+        included: true,
+        options: [],
+        placeholder: 'Select manufacturer',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'asset-type',
+        name: 'assetType',
+        type: 'text',
+        label: 'Asset Type',
+        description: 'Type of asset',
+        required: false,
+        included: true,
+        placeholder: 'Enter asset type',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
+        id: 'notes',
+        name: 'notes',
+        type: 'textarea',
+        label: 'Notes',
+        description: 'Additional notes about the asset',
+        required: false,
+        included: true,
+        placeholder: 'Enter additional notes',
+        isStandard: false,
+        dataType: 'Text'
+      },
+      {
         id: 'image',
         name: 'image',
         type: 'file',
@@ -321,6 +396,23 @@ export default function AddAssetPage() {
   const [imageDialogAssetId, setImageDialogAssetId] = React.useState('')
   const [qrDialogAssetId, setQrDialogAssetId] = React.useState('')
   
+  // Debug: Monitor state changes
+  React.useEffect(() => {
+    console.log('🖼️ uploadedImagePreview changed:', uploadedImagePreview ? 'SET' : 'NULL')
+    if (uploadedImagePreview) {
+      console.log('🖼️ Preview URL length:', uploadedImagePreview.length)
+      console.log('🖼️ Preview URL starts with:', uploadedImagePreview.substring(0, 50))
+    }
+  }, [uploadedImagePreview])
+  
+  React.useEffect(() => {
+    console.log('📱 qrCodePreview changed:', qrCodePreview ? 'SET' : 'NULL')
+    if (qrCodePreview) {
+      console.log('📱 QR URL length:', qrCodePreview.length)
+      console.log('📱 QR URL starts with:', qrCodePreview.substring(0, 50))
+    }
+  }, [qrCodePreview])
+  
   // Dialog states for validation errors
   const [showInvalidFormatDialog, setShowInvalidFormatDialog] = React.useState(false)
   const [formatError, setFormatError] = React.useState<string | null>(null)
@@ -330,52 +422,29 @@ export default function AddAssetPage() {
   const [showSuccessDialog, setShowSuccessDialog] = React.useState(false)
   const [createdAssetId, setCreatedAssetId] = React.useState('')
 
-  // Load dynamic fields and merge with defaults
+  // Keep fields in fixed order - no reordering on refresh
   React.useEffect(() => {
+    // Fields are already initialized with defaultFields in fixed order
+    // No loading from localStorage to prevent position changes during refresh
     
-    // Hard reset to clear all caches
-    console.log('Performing hard reset of field configuration...')
-    fieldManager.forceReset()
-    
-    // Ensure image field is always included
-    fieldManager.ensureImageField()
-    
-    // Load initial fields and merge with defaults
-    const loadedFields = fieldManager.getIncludedFields()
-    console.log('Loaded fields after reset:', loadedFields.map(f => ({ name: f.name, type: f.type, included: f.included })))
-    console.log('All fields from manager:', fieldManager.getAllFields().map(f => ({ name: f.name, type: f.type, included: f.included })))
-    
-    // Merge loaded fields with defaults (loaded fields take precedence)
-    const mergedFields = [...defaultFields]
-    loadedFields.forEach(loadedField => {
-      const existingIndex = mergedFields.findIndex(f => f.name === loadedField.name)
-      if (existingIndex >= 0) {
-        mergedFields[existingIndex] = loadedField
-      } else {
-        mergedFields.push(loadedField)
-      }
-    })
-    
-    setFields(mergedFields)
-    setAssetFormSchema(createAssetFormSchema(mergedFields))
-
-    // Subscribe to field changes
+    // Subscribe to field changes (for future field manager updates only)
     const unsubscribe = fieldManager.subscribe((updatedFields: AnyAssetField[]) => {
       const includedFields = updatedFields.filter((field: AnyAssetField) => field.included)
       
-      // Merge with defaults again
-      const mergedFields = [...defaultFields]
-      includedFields.forEach(loadedField => {
-        const existingIndex = mergedFields.findIndex(f => f.name === loadedField.name)
-        if (existingIndex >= 0) {
-          mergedFields[existingIndex] = loadedField
-        } else {
-          mergedFields.push(loadedField)
-        }
-      })
-      
-      setFields(mergedFields)
-      setAssetFormSchema(createAssetFormSchema(mergedFields))
+      // Only update if actively changed through field manager, keep default order
+      if (includedFields.length > 0) {
+        const mergedFields = [...defaultFields]
+        includedFields.forEach(loadedField => {
+          const existingIndex = mergedFields.findIndex(f => f.name === loadedField.name)
+          if (existingIndex >= 0) {
+            // Update field properties but keep position
+            mergedFields[existingIndex] = { ...mergedFields[existingIndex], ...loadedField }
+          }
+        })
+        
+        setFields(mergedFields)
+        setAssetFormSchema(createAssetFormSchema(mergedFields))
+      }
     })
 
     return unsubscribe
@@ -507,6 +576,30 @@ export default function AddAssetPage() {
         return
       }
       
+      // IMMEDIATE PREVIEW - Test if FileReader works at all
+      console.log('Creating immediate preview...')
+      const testReader = new FileReader()
+      testReader.onload = (e) => {
+        console.log('IMMEDIATE PREVIEW SUCCESS:', e.target?.result ? 'Data URL created' : 'No data')
+        const testUrl = e.target?.result as string
+        console.log('Test URL length:', testUrl?.length)
+        console.log('Test URL starts with:', testUrl?.substring(0, 50))
+        
+        // Validate the URL before setting it
+        if (testUrl && testUrl.startsWith('data:image/')) {
+          console.log('✅ Valid image data URL, setting preview')
+          setUploadedImagePreview(testUrl)
+        } else {
+          console.error('❌ Invalid image data URL:', testUrl?.substring(0, 100))
+          toast.error('Failed to create image preview')
+        }
+      }
+      testReader.onerror = (e) => {
+        console.error('IMMEDIATE PREVIEW ERROR:', e)
+        toast.error('Failed to read image file')
+      }
+      testReader.readAsDataURL(file)
+      
       // Check if Asset ID is provided
       const assetId = form.getValues('assetTagId') as string
       if (!assetId || assetId.trim() === '') {
@@ -534,23 +627,36 @@ export default function AddAssetPage() {
         id: 'image-upload'
       })
       
-      // Create preview first
-      let previewUrl: string | null = null
-      const reader = new FileReader()
-      reader.onload = (e) => {
-        console.log('File read successfully, setting preview')
-        previewUrl = e.target?.result as string
-        setUploadedImagePreview(previewUrl)
-      }
-      reader.onerror = (e) => {
-        console.error('File read error:', e)
-      }
-      reader.readAsDataURL(file)
+      // Create preview first - use a more reliable approach
+    const reader = new FileReader()
+      let localPreviewUrl: string | null = null
+    reader.onload = (e) => {
+      console.log('File read successfully, setting preview')
+        const result = e.target?.result as string
+        console.log('Preview URL created:', result ? 'Yes' : 'No')
+        
+        // Validate the URL before setting it
+        if (result && result.startsWith('data:image/')) {
+          console.log('✅ Valid image data URL in processImageUpload, setting preview')
+          localPreviewUrl = result
+          setUploadedImagePreview(result) // Set local preview immediately
+        } else {
+          console.error('❌ Invalid image data URL in processImageUpload:', result?.substring(0, 100))
+        }
+    }
+    reader.onerror = (e) => {
+      console.error('File read error:', e)
+        toast.error('Failed to read image file')
+    }
+    reader.readAsDataURL(file)
     
+      // Wait a bit for the preview to be set
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       // Generate file path for Supabase Storage
       const fileExt = file.name.split('.').pop() || 'jpg'
       const fileName = `${assetId}.${fileExt}`
-      const filePath = `asset-images/${fileName}`
+      const filePath = `asset-images/${fileName}` // Organize in asset-images subfolder
       
       console.log('=== IMAGE UPLOAD DEBUG ===')
       console.log('Original filename:', file.name)
@@ -559,10 +665,11 @@ export default function AddAssetPage() {
       console.log('New filename:', fileName)
       console.log('File path:', filePath)
       console.log('Bucket: asset-images')
+      console.log('Folder structure: asset-images/asset-images/')
       console.log('============================')
       
       // Upload image to Supabase Storage
-      const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath)
+      const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath, 'asset-images')
       
       if (uploadError) {
         console.error('Image upload failed:', uploadError)
@@ -573,15 +680,53 @@ export default function AddAssetPage() {
         })
         
         // Fallback: use local file
-        form.setValue('image', file)
+    form.setValue('image', file)
       } else {
         console.log('Image uploaded successfully:', uploadData)
         
         // Set the uploaded image URL as form value
         form.setValue('image', file)
         
-        // Create preview using the uploaded URL
-        setUploadedImagePreview(uploadData?.publicUrl || previewUrl)
+        // Update preview with uploaded URL if available
+        if (uploadData?.publicUrl) {
+          console.log('Setting preview to uploaded URL:', uploadData.publicUrl)
+          // Validate the uploaded URL before setting it
+          if (uploadData.publicUrl.startsWith('http')) {
+            // Test the URL before setting it
+            try {
+              const testResponse = await fetch(uploadData.publicUrl, { method: 'HEAD' })
+              console.log('URL test response:', testResponse.status, testResponse.statusText)
+              if (testResponse.ok) {
+                console.log('✅ URL is accessible, setting preview')
+                setUploadedImagePreview(uploadData.publicUrl)
+              } else {
+                console.error('❌ URL is not accessible:', testResponse.status, testResponse.statusText)
+                // Fallback to local preview if URL is not accessible
+                if (localPreviewUrl) {
+                  console.log('🔄 Falling back to local preview')
+                  setUploadedImagePreview(localPreviewUrl)
+                }
+                toast.error('Image uploaded but URL is not accessible', {
+                  description: `Status: ${testResponse.status} ${testResponse.statusText}. Using local preview.`,
+                  duration: 4000,
+                })
+              }
+            } catch (urlError) {
+              console.error('❌ URL test failed:', urlError)
+              // Fallback to local preview if URL test fails
+              if (localPreviewUrl) {
+                console.log('🔄 Falling back to local preview after URL test failure')
+                setUploadedImagePreview(localPreviewUrl)
+              }
+              toast.error('Image uploaded but URL test failed', {
+                description: 'Using local preview. Please check your Supabase Storage configuration',
+                duration: 4000,
+              })
+            }
+          } else {
+            console.error('❌ Invalid uploaded URL format:', uploadData.publicUrl)
+          }
+        }
         
         toast.dismiss('image-upload')
         toast.success("Image uploaded successfully!", {
@@ -648,6 +793,60 @@ export default function AddAssetPage() {
     form.setValue('image', null)
   }
 
+  // Enhanced QR download function
+  const handleQrDownload = async () => {
+    try {
+      if (!qrCodePreview) {
+        toast.error("No QR code available to download")
+        return
+      }
+
+      const assetId = form.getValues('assetTagId') || 'asset'
+      
+      // Show loading toast
+      toast.loading("Preparing QR code download...", {
+        id: 'qr-download'
+      })
+
+      // Fetch the image as a blob
+      const response = await fetch(qrCodePreview)
+      if (!response.ok) {
+        throw new Error('Failed to fetch QR code image')
+      }
+      
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${assetId}.png` // Use clean filename since QR codes are in qr-codes folder
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      // Clean up
+      window.URL.revokeObjectURL(url)
+      
+      // Show success toast
+      toast.dismiss('qr-download')
+      toast.success("QR Code downloaded successfully!", {
+        description: `QR code saved as "${assetId}.png"`,
+        duration: 3000,
+      })
+      
+    } catch (error) {
+      console.error('QR download error:', error)
+      toast.dismiss('qr-download')
+      toast.error("Failed to download QR code", {
+        description: "Please try again or contact support if the issue persists.",
+        duration: 4000,
+      })
+    }
+  }
+
   // Remove QR code
   const removeQrCode = () => {
     setQrCodePreview(null)
@@ -681,7 +880,8 @@ export default function AddAssetPage() {
         timestamp: new Date().toISOString()
       }
       
-      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(JSON.stringify(qrData))}`
+      // Use larger size and higher quality for better scanning
+      const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&format=png&margin=20&data=${encodeURIComponent(JSON.stringify(qrData))}`
       
       // Create a temporary image element to download the QR code
       const img = new Image()
@@ -696,17 +896,20 @@ export default function AddAssetPage() {
           canvas.height = img.height
           
           if (ctx) {
+            // Use high quality settings for better QR code scanning
+            ctx.imageSmoothingEnabled = false // Keep sharp edges for QR code
             ctx.drawImage(img, 0, 0)
+            // Use maximum quality (1.0) for PNG to ensure QR code is scannable
             canvas.toBlob(async (blob) => {
               if (blob) {
                 try {
                   // Create file from blob
                   const file = new File([blob], `${assetId}.png`, { type: 'image/png' })
                   
-                  // Generate file path for Supabase Storage (QR codes bucket)
+                  // Generate file path for Supabase Storage (organize QR codes in qr-codes subfolder)
                   const fileExt = file.name.split('.').pop() || 'png'
                   const fileName = `${assetId}.${fileExt}`
-                  const filePath = `qr-codes/${fileName}`
+                  const filePath = `qr-codes/${fileName}` // Organize in qr-codes subfolder
                   
                   console.log('=== QR CODE UPLOAD DEBUG ===')
                   console.log('QR filename:', file.name)
@@ -714,11 +917,12 @@ export default function AddAssetPage() {
                   console.log('File extension:', fileExt)
                   console.log('New filename:', fileName)
                   console.log('File path:', filePath)
-                  console.log('Bucket: qr-codes')
+                  console.log('Bucket: asset-images')
+                  console.log('Folder structure: asset-images/qr-codes/')
                   console.log('============================')
                   
-                  // Upload QR code to Supabase Storage
-                  const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath)
+                  // Upload QR code to Supabase Storage (use asset-images bucket)
+                  const { data: uploadData, error: uploadError } = await assetService.uploadImage(file, filePath, 'asset-images')
                   
                   if (uploadError) {
                     console.error('QR code upload failed:', uploadError)
@@ -732,6 +936,7 @@ export default function AddAssetPage() {
                     form.setValue('image', file)
                     const reader = new FileReader()
                     reader.onload = (e) => {
+                      console.log('Setting QR preview from local file')
                       setQrCodePreview(e.target?.result as string)
                     }
                     reader.readAsDataURL(blob)
@@ -742,6 +947,7 @@ export default function AddAssetPage() {
                     form.setValue('image', file)
                     
                     // Create preview using the uploaded URL
+                    console.log('Setting QR preview to uploaded URL:', uploadData?.publicUrl)
                     setQrCodePreview(uploadData?.publicUrl || qrCodeUrl)
                     
                     toast.dismiss('qr-generation')
@@ -882,32 +1088,55 @@ export default function AddAssetPage() {
         }
       }
       
+      // Debug: Log raw form data
+      console.log('=== RAW FORM DATA ===')
+      console.log('data.value (cost):', data.value, 'Type:', typeof data.value)
+      console.log('data.category:', data.category)
+      console.log('data.location:', data.location)
+      console.log('data.site:', data.site)
+      console.log('data.department:', data.department)
+      console.log('data.manufacturer:', data.manufacturer)
+      console.log('data.assetType:', data.assetType)
+      console.log('data.assignedTo:', data.assignedTo)
+      console.log('===================')
+      
       // Prepare asset data for database
+      // Parse and validate cost value
+      let costValue = 0
+      if (data.value) {
+        const parsedCost = parseFloat(String(data.value))
+        if (!isNaN(parsedCost) && parsedCost >= 0 && parsedCost < 9999999999999) {
+          costValue = parsedCost
+        }
+      }
+
       const assetData: CreateAssetData = {
         asset_tag_id: assetId,
-        name: String(data.name || data.description || data.serialNumber || data.brand || data.model || assetId || 'Untitled Asset'), // Use name field from form, fallback to other fields, ensure never empty
+        name: String(data.name || data.description || data.serialNumber || data.brand || data.model || assetId || 'Untitled Asset'),
         description: String(data.description || ''),
-        serial_number: String(data.serialNumber || ''),
+        serialNumber: String(data.serialNumber || ''),
         brand: String(data.brand || ''),
         model: String(data.model || ''),
-        cost: data.cost ? parseFloat(String(data.cost)) || 0 : 0,
-        purchase_date: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
-        date_acquired: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
+        cost: costValue,
+        purchaseDate: data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
+        dateAcquired: data.dateAcquired ? format(data.dateAcquired as Date, "yyyy-MM-dd") : data.purchaseDate ? format(data.purchaseDate as Date, "yyyy-MM-dd") : undefined,
         category: String(data.category || ''),
-        sub_category: String(data.subCategory || ''),
+        subCategory: String(data.subCategory || ''),
         location: String(data.location || ''),
         site: String(data.site || ''),
         department: String(data.department || ''),
-        status: "Available",
-        assigned_to: String(data.assignedTo || ''),
-        asset_type: String(data.assetType || ''),
+        status: "Available" as const,
+        assignedTo: String(data.assignedTo || ''),
+        assetType: String(data.assetType || ''),
         notes: String(data.notes || ''),
-        image_url: imageUrl,
-        image_file_name: imageFileName,
+        imageUrl: imageUrl,
+        imageFileName: imageFileName,
+        manufacturer: String(data.manufacturer || ''),
       }
 
+      console.log('=== PREPARED ASSET DATA ===')
       console.log('Prepared asset data:', assetData)
-      console.log('Asset name being sent:', assetData.name)
+      console.log('===========================')
 
       // Test database connection first
       console.log('Testing database connection...')
@@ -1112,6 +1341,7 @@ export default function AddAssetPage() {
                         <ImageIcon className="h-4 w-4" />
                       <span className="text-sm font-medium">Asset Images</span>
                     </div>
+                    
 
                     {/* 2 Column Grid */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1141,7 +1371,50 @@ export default function AddAssetPage() {
                                   src={uploadedImagePreview}
                                   alt="Uploaded Asset Image"
                                   className="h-40 w-auto max-w-full object-contain rounded-lg shadow-sm"
+                                  onLoad={() => console.log('🖼️ Image loaded successfully')}
+                                  onError={(e) => {
+                                    console.error('🖼️ Image failed to load:', e)
+                                    console.error('🖼️ Failed URL:', uploadedImagePreview)
+                                    console.error('🖼️ Image element:', e.target)
+                                    console.error('🖼️ Image src:', (e.target as HTMLImageElement)?.src)
+                                    
+                                    // Test the URL directly
+                                    if (uploadedImagePreview) {
+                                      fetch(uploadedImagePreview, { method: 'HEAD' })
+                                        .then(response => {
+                                          console.error('🖼️ Direct URL test:', response.status, response.statusText)
+                                          if (!response.ok) {
+                                            return response.text()
+                                          }
+                                        })
+                                        .then(errorText => {
+                                          if (errorText) {
+                                            console.error('🖼️ URL error details:', errorText)
+                                          }
+                                        })
+                                        .catch(error => {
+                                          console.error('🖼️ URL test error:', error)
+                                        })
+                                    }
+                                    
+                                    // Try to reload the image after a short delay
+                                    setTimeout(() => {
+                                      const img = e.target as HTMLImageElement
+                                      if (img.src !== uploadedImagePreview) {
+                                        img.src = uploadedImagePreview || ''
+                                      }
+                                    }, 1000)
+                                  }}
                                 />
+                                {/* Fallback placeholder if image fails */}
+                                {uploadedImagePreview && (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded-lg opacity-0 hover:opacity-100 transition-opacity">
+                                    <div className="text-center text-gray-500 dark:text-gray-400">
+                                      <ImageIcon className="h-8 w-8 mx-auto mb-2" />
+                                      <p className="text-sm">Image Preview</p>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                               <div className="text-center space-y-1">
                                 <p className="text-sm font-medium text-foreground">Image Uploaded</p>
@@ -1190,6 +1463,8 @@ export default function AddAssetPage() {
                                   src={qrCodePreview}
                                   alt="Generated QR Code"
                                   className="h-40 w-40 object-contain rounded-lg shadow-sm"
+                                  onLoad={() => console.log('📱 QR Code loaded successfully')}
+                                  onError={(e) => console.error('📱 QR Code failed to load:', e)}
                                 />
                                 <div className="absolute -top-2 -right-2 bg-green-500 text-white rounded-full p-1">
                                   <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1206,17 +1481,10 @@ export default function AddAssetPage() {
                                   type="button"
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    const link = document.createElement('a')
-                                    link.href = qrCodePreview
-                                    link.download = `${form.getValues('assetTagId') || 'asset'}.png`
-                                    link.click()
-                                  }}
+                                  onClick={handleQrDownload}
                                   className="text-green-600 border-green-200 hover:bg-green-50 dark:text-green-400 dark:border-green-800 dark:hover:bg-green-900/20"
                                 >
-                                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
+                                  <Download className="h-4 w-4 mr-2" />
                                   Download QR
                                 </Button>
                                 <Button
@@ -1301,22 +1569,43 @@ export default function AddAssetPage() {
 
       case 'select':
         // Determine options based on field name
-        let options: { value: string; label: string }[] = []
+        let options: { value: string; label: string; key: string }[] = []
         
         if (field.name === 'category') {
-          options = categories.map(cat => ({ value: cat.id, label: cat.name }))
+          // Remove duplicates based on name
+          const uniqueCategories = categories.filter((cat, index, self) => 
+            index === self.findIndex((c) => c.name === cat.name)
+          )
+          options = uniqueCategories.map((cat, idx) => ({ value: cat.name, label: cat.name, key: `cat-${cat.id}-${idx}` }))
         } else if (field.name === 'location') {
-          options = locations.map(loc => ({ value: loc.id, label: loc.name }))
+          const uniqueLocations = locations.filter((loc, index, self) => 
+            index === self.findIndex((l) => l.name === loc.name)
+          )
+          options = uniqueLocations.map((loc, idx) => ({ value: loc.name, label: loc.name, key: `loc-${loc.id}-${idx}` }))
         } else if (field.name === 'site') {
-          options = setupDataManager.getSites().map(site => ({ value: site.id, label: site.name }))
+          const sites = setupDataManager.getSites()
+          const uniqueSites = sites.filter((site, index, self) => 
+            index === self.findIndex((s) => s.name === site.name)
+          )
+          options = uniqueSites.map((site, idx) => ({ value: site.name, label: site.name, key: `site-${site.id}-${idx}` }))
         } else if (field.name === 'department') {
-          options = departments.map(dept => ({ value: dept.id, label: dept.name }))
+          const uniqueDepartments = departments.filter((dept, index, self) => 
+            index === self.findIndex((d) => d.name === dept.name)
+          )
+          options = uniqueDepartments.map((dept, idx) => ({ value: dept.name, label: dept.name, key: `dept-${dept.id}-${idx}` }))
         } else if (field.name === 'assignedTo') {
-          options = employees.map(emp => ({ value: emp.id, label: emp.name }))
+          const uniqueEmployees = employees.filter((emp, index, self) => 
+            index === self.findIndex((e) => e.name === emp.name)
+          )
+          options = uniqueEmployees.map((emp, idx) => ({ value: emp.name, label: emp.name, key: `emp-${emp.id}-${idx}` }))
         } else if (field.name === 'manufacturer') {
-          options = manufacturers.map(mfr => ({ value: mfr.id, label: mfr.name }))
+          const uniqueManufacturers = manufacturers.filter((mfr, index, self) => 
+            index === self.findIndex((m) => m.name === mfr.name)
+          )
+          options = uniqueManufacturers.map((mfr, idx) => ({ value: mfr.name, label: mfr.name, key: `mfr-${mfr.id}-${idx}` }))
         } else if (field.options) {
-          options = field.options.map(opt => ({ value: opt, label: opt }))
+          const uniqueOptions = Array.from(new Set(field.options))
+          options = uniqueOptions.map((opt, idx) => ({ value: opt, label: opt, key: `${field.name}-opt-${idx}` }))
         }
 
         // Special handling for Issued To field to make it searchable
@@ -1386,7 +1675,7 @@ export default function AddAssetPage() {
                       </FormControl>
                       <SelectContent>
                         {options.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
+                          <SelectItem key={option.key} value={option.value}>
                             {option.label}
                           </SelectItem>
                         ))}
@@ -1526,7 +1815,7 @@ export default function AddAssetPage() {
                     <CardContent>
                       <div className="grid gap-4 md:grid-cols-2">
                         {categoryFields.map((field) => (
-                          <div key={field.id} className="w-full">
+                          <div key={`${categoryName}-${field.name}`} className="w-full">
                             {renderField(field)}
                           </div>
                         ))}

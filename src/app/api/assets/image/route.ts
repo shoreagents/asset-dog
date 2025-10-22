@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
     
     const file = formData.get('file') as File
     const filePath = formData.get('filePath') as string
+    const bucket = formData.get('bucket') as string || 'asset-images' // Default to asset-images
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
@@ -18,9 +19,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No file path provided' }, { status: 400 })
     }
 
+    console.log('=== API UPLOAD DEBUG ===')
+    console.log('File:', file.name, file.type, file.size)
+    console.log('File path:', filePath)
+    console.log('Bucket:', bucket)
+    console.log('========================')
+
     // Upload file to Supabase Storage
     const { data, error } = await supabase.storage
-      .from('asset-images')
+      .from(bucket)
       .upload(filePath, file, {
         cacheControl: '3600',
         upsert: true // Allow overwriting existing files
@@ -33,8 +40,13 @@ export async function POST(request: NextRequest) {
 
     // Get public URL
     const { data: urlData } = supabase.storage
-      .from('asset-images')
+      .from(bucket)
       .getPublicUrl(filePath)
+
+    console.log('Upload successful:', {
+      path: data.path,
+      publicUrl: urlData.publicUrl
+    })
 
     return NextResponse.json({
       success: true,

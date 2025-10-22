@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -44,35 +44,109 @@ export default function CompanyInfoPage() {
     currency: "USD",
     logo: null as File | null,
     logoPreview: null as string | null,
+    logoUrl: null as string | null,
   })
 
   const [isEditing, setIsEditing] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false)
 
-  const handleSave = () => {
-    // Save company data logic here
-    toast.success("Company information saved successfully!")
-    setIsEditing(false)
+  // Fetch company info on mount
+  useEffect(() => {
+    fetchCompanyInfo()
+  }, [])
+
+  const fetchCompanyInfo = async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetch('/api/company-info')
+      if (response.ok) {
+        const data = await response.json()
+        setCompanyData({
+          company: data.company || "Asset Dog Inc.",
+          organizationType: data.organizationType || "",
+          country: data.country || "United States",
+          address: data.address || "123 Business Street",
+          aptSuite: data.aptSuite || "",
+          city: data.city || "New York",
+          state: data.state || "NY",
+          postalCode: data.postalCode || "10001",
+          timezone: data.timezone || "America/New_York",
+          currency: data.currency || "USD",
+          logo: null,
+          logoPreview: data.logoUrl || null,
+          logoUrl: data.logoUrl || null,
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching company info:', error)
+      toast.error("Failed to load company information")
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast.error("Please select an image file")
-        return
-      }
+  const handleSave = async () => {
+    try {
+      setIsSaving(true)
       
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB")
-        return
-      }
+      const response = await fetch('/api/company-info', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          company: companyData.company,
+          organizationType: companyData.organizationType,
+          country: companyData.country,
+          address: companyData.address,
+          aptSuite: companyData.aptSuite,
+          city: companyData.city,
+          state: companyData.state,
+          postalCode: companyData.postalCode,
+          timezone: companyData.timezone,
+          currency: companyData.currency,
+          logoUrl: companyData.logoUrl,
+        }),
+      })
 
-      setCompanyData(prev => ({
-        ...prev,
-        logo: file
-      }))
+      if (response.ok) {
+        toast.success("Company information saved successfully!")
+        setIsEditing(false)
+        await fetchCompanyInfo()
+        
+        // Trigger sidebar refresh by dispatching custom event
+        window.dispatchEvent(new CustomEvent('companyInfoUpdated'))
+      } else {
+        toast.error("Failed to save company information")
+      }
+    } catch (error) {
+      console.error('Error saving company info:', error)
+      toast.error("Failed to save company information")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error("Please select an image file")
+      return
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("File size must be less than 5MB")
+      return
+    }
+
+    try {
+      setIsUploadingLogo(true)
 
       // Create preview URL
       const reader = new FileReader()
@@ -83,18 +157,48 @@ export default function CompanyInfoPage() {
         }))
       }
       reader.readAsDataURL(file)
-      
-      toast.success("Logo uploaded successfully!")
+
+      // Upload to server
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const response = await fetch('/api/company-info/logo', {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setCompanyData(prev => ({
+          ...prev,
+          logo: file,
+          logoUrl: data.url,
+        }))
+        toast.success("Logo uploaded successfully!")
+      } else {
+        toast.error("Failed to upload logo")
+      }
+    } catch (error) {
+      console.error('Error uploading logo:', error)
+      toast.error("Failed to upload logo")
+    } finally {
+      setIsUploadingLogo(false)
     }
   }
 
-  const removeLogo = () => {
-    setCompanyData(prev => ({
-      ...prev,
-      logo: null,
-      logoPreview: null
-    }))
-    toast.success("Logo removed successfully!")
+  const removeLogo = async () => {
+    try {
+      setCompanyData(prev => ({
+        ...prev,
+        logo: null,
+        logoPreview: null,
+        logoUrl: null,
+      }))
+      toast.success("Logo removed successfully!")
+    } catch (error) {
+      console.error('Error removing logo:', error)
+      toast.error("Failed to remove logo")
+    }
   }
 
   const handleInputChange = (field: string, value: string) => {
@@ -148,18 +252,87 @@ export default function CompanyInfoPage() {
     "America/Chicago", 
     "America/Denver",
     "America/Los_Angeles",
+    "America/Phoenix",
+    "America/Anchorage",
+    "America/Honolulu",
+    "America/Toronto",
+    "America/Vancouver",
+    "America/Mexico_City",
+    "America/Sao_Paulo",
+    "America/Buenos_Aires",
     "Europe/London",
     "Europe/Paris",
     "Europe/Berlin",
+    "Europe/Madrid",
+    "Europe/Rome",
+    "Europe/Amsterdam",
+    "Europe/Brussels",
+    "Europe/Vienna",
+    "Europe/Stockholm",
+    "Europe/Oslo",
+    "Europe/Copenhagen",
+    "Europe/Helsinki",
+    "Europe/Warsaw",
+    "Europe/Prague",
+    "Europe/Athens",
+    "Europe/Istanbul",
+    "Europe/Moscow",
     "Asia/Tokyo",
     "Asia/Shanghai",
+    "Asia/Hong_Kong",
+    "Asia/Singapore",
+    "Asia/Seoul",
+    "Asia/Bangkok",
+    "Asia/Jakarta",
+    "Asia/Manila",
     "Asia/Kolkata",
+    "Asia/Dubai",
+    "Asia/Riyadh",
+    "Asia/Tel_Aviv",
     "Australia/Sydney",
-    "Pacific/Auckland"
+    "Australia/Melbourne",
+    "Australia/Brisbane",
+    "Australia/Perth",
+    "Pacific/Auckland",
+    "Pacific/Fiji",
+    "Pacific/Honolulu",
+    "Africa/Cairo",
+    "Africa/Johannesburg",
+    "Africa/Lagos",
+    "Africa/Nairobi"
   ]
 
   const currencies = [
-    "USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CHF", "CNY", "INR", "BRL", "MXN", "ZAR"
+    "USD", // US Dollar
+    "EUR", // Euro
+    "GBP", // British Pound
+    "JPY", // Japanese Yen
+    "CHF", // Swiss Franc
+    "CAD", // Canadian Dollar
+    "AUD", // Australian Dollar
+    "NZD", // New Zealand Dollar
+    "CNY", // Chinese Yuan
+    "INR", // Indian Rupee
+    "KRW", // South Korean Won
+    "SGD", // Singapore Dollar
+    "HKD", // Hong Kong Dollar
+    "MXN", // Mexican Peso
+    "BRL", // Brazilian Real
+    "ZAR", // South African Rand
+    "RUB", // Russian Ruble
+    "TRY", // Turkish Lira
+    "SEK", // Swedish Krona
+    "NOK", // Norwegian Krone
+    "DKK", // Danish Krone
+    "PLN", // Polish Zloty
+    "THB", // Thai Baht
+    "IDR", // Indonesian Rupiah
+    "MYR", // Malaysian Ringgit
+    "PHP", // Philippine Peso
+    "AED", // UAE Dirham
+    "SAR", // Saudi Riyal
+    "ILS", // Israeli Shekel
+    "EGP"  // Egyptian Pound
   ]
 
   return (
@@ -206,20 +379,28 @@ export default function CompanyInfoPage() {
               <div className="flex gap-2">
                 {isEditing ? (
                   <>
-                    <Button onClick={handleSave} className="flex items-center gap-2">
+                    <Button 
+                      onClick={handleSave} 
+                      className="flex items-center gap-2"
+                      disabled={isSaving || isLoading}
+                    >
                       <Save className="h-4 w-4" />
-                      Save Changes
+                      {isSaving ? "Saving..." : "Save Changes"}
                     </Button>
                     <Button 
                       variant="outline" 
                       onClick={() => setIsEditing(false)}
+                      disabled={isSaving}
                     >
                       Cancel
                     </Button>
                   </>
                 ) : (
-                  <Button onClick={() => setIsEditing(true)}>
-                    Edit Company Info
+                  <Button 
+                    onClick={() => setIsEditing(true)}
+                    disabled={isLoading}
+                  >
+                    {isLoading ? "Loading..." : "Edit Company Info"}
                   </Button>
                 )}
               </div>
@@ -485,19 +666,19 @@ export default function CompanyInfoPage() {
                         type="button"
                         variant="outline"
                         onClick={() => document.getElementById('logo-upload')?.click()}
-                        disabled={!isEditing}
+                        disabled={!isEditing || isUploadingLogo}
                         className="flex items-center gap-2"
                       >
                         <Upload className="h-4 w-4" />
-                        {companyData.logo ? 'Change Logo' : 'Upload Logo'}
+                        {isUploadingLogo ? 'Uploading...' : companyData.logoUrl ? 'Change Logo' : 'Upload Logo'}
                       </Button>
                       
-                      {companyData.logo && (
+                      {(companyData.logoUrl || companyData.logoPreview) && (
                         <Button
                           type="button"
                           variant="outline"
                           onClick={removeLogo}
-                          disabled={!isEditing}
+                          disabled={!isEditing || isUploadingLogo}
                           className="text-destructive hover:text-destructive"
                         >
                           Remove

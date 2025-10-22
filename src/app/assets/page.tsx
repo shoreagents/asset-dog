@@ -4,6 +4,7 @@ import * as React from "react"
 import { Asset } from "@/lib/lists-data"
 import { useInstantAssets } from "@/hooks/use-instant-assets"
 import { useUpdateAsset } from "@/hooks/use-assets-query"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -53,8 +54,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X, Image as ImageIcon, Camera } from "lucide-react"
+import { Search, Plus, ArrowUpDown, UserCheck, UserMinus, User, Mail, Phone, MapPin, Briefcase, MoreHorizontal, Package, Move, DollarSign, CheckCircle, Columns, ChevronLeft, ChevronRight, Edit, FileText, Settings, Save, X, Image as ImageIcon, Camera, Trash2 } from "lucide-react"
 import Link from "next/link"
+import { DeleteConfirmDialog } from "@/components/lists/delete-confirm-dialog"
+import { toast } from "sonner"
 
 // Use useAssets hook for Supabase integration
 
@@ -119,6 +122,7 @@ const mockPersons = {
 export default function AssetsPage() {
   const { data: assets = [], isLoading, error } = useInstantAssets()
   const updateAssetMutation = useUpdateAsset()
+  const { formatCurrency, formatDate, formatDateTime } = useSystemSettings()
   const [searchTerm, setSearchTerm] = React.useState("")
   const [categoryFilter, setCategoryFilter] = React.useState("all")
   const [statusFilter, setStatusFilter] = React.useState("all")
@@ -131,6 +135,8 @@ export default function AssetsPage() {
   const [isEditing, setIsEditing] = React.useState(false)
   const [editedAsset, setEditedAsset] = React.useState<Asset | null>(null)
   const [showSaveConfirmation, setShowSaveConfirmation] = React.useState(false)
+  const [isDeleteOpen, setIsDeleteOpen] = React.useState(false)
+  const [deletingAsset, setDeletingAsset] = React.useState<Asset | null>(null)
   const [visibleFields, setVisibleFields] = React.useState<string[]>([
     "id", "name", "category", "status", "assignedTo", "location", "value"
   ])
@@ -142,6 +148,21 @@ export default function AssetsPage() {
   const [scannedAssetId, setScannedAssetId] = React.useState<string | null>(null)
   const [showQrOptionsDialog, setShowQrOptionsDialog] = React.useState(false)
   const [isCameraScanning, setIsCameraScanning] = React.useState(false)
+  const [showUnrecognizedQrDialog, setShowUnrecognizedQrDialog] = React.useState(false)
+  const [unrecognizedQrData, setUnrecognizedQrData] = React.useState<string>('')
+
+  // Handle authentication errors gracefully
+  React.useEffect(() => {
+    if (error) {
+      console.error('Assets page error:', error)
+      // Check if it's an authentication error
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('auth')) {
+        console.log('Authentication error detected, redirecting to login...')
+        // You could redirect to login here if needed
+        // window.location.href = '/login'
+      }
+    }
+  }, [error])
 
   // Available field options
   const fieldOptions = [
@@ -255,6 +276,7 @@ export default function AssetsPage() {
   }
 
   const handleAssetClick = (asset: Asset) => {
+    console.log('Selected Asset Data:', JSON.stringify(asset, null, 2))
     setSelectedAsset(asset)
     setIsAssetDetailsOpen(true)
     setIsEditing(false)
@@ -303,15 +325,57 @@ export default function AssetsPage() {
     }
   }
 
+  const handleDeleteAsset = (asset: Asset, event: React.MouseEvent) => {
+    event.stopPropagation()
+    setDeletingAsset(asset)
+    setIsDeleteOpen(true)
+  }
+
+  const handleConfirmDelete = async () => {
+    if (!deletingAsset) return
+    
+    try {
+      // Call your delete API here
+      const response = await fetch(`/api/assets/${deletingAsset.id}`, {
+        method: 'DELETE',
+      })
+      
+      if (!response.ok) throw new Error('Failed to delete asset')
+      
+      toast.success(`Asset "${deletingAsset.id || deletingAsset.name}" deleted successfully!`)
+      
+      // Reload assets
+      window.location.reload()
+    } catch (error) {
+      console.error('Error deleting asset:', error)
+      toast.error('Failed to delete asset. Please try again.')
+    } finally {
+      setIsDeleteOpen(false)
+      setDeletingAsset(null)
+    }
+  }
+
   // QR Scanner functionality
   const handleQrScan = (result: string) => {
     try {
       // Try to parse as JSON first (for our structured QR codes)
       const qrData = JSON.parse(result)
       if (qrData.type === 'asset' && qrData.id) {
-        setScannedAssetId(qrData.id)
-        setIsQrScannerOpen(false)
-        return
+        // Check if asset exists
+        const foundAsset = assets.find(asset => asset.id === qrData.id)
+        if (foundAsset) {
+          setScannedAssetId(qrData.id)
+          setIsQrScannerOpen(false)
+          setShowQrOptionsDialog(false)
+          return
+        } else {
+          // Asset not found
+          setUnrecognizedQrData(result)
+          setShowUnrecognizedQrDialog(true)
+          setIsQrScannerOpen(false)
+          setShowQrOptionsDialog(false)
+          return
+        }
       }
     } catch (error) {
       // If not JSON, treat as plain asset ID
@@ -319,13 +383,38 @@ export default function AssetsPage() {
     }
     
     // Treat the result as a plain asset ID
-    setScannedAssetId(result.trim())
-    setIsQrScannerOpen(false)
+    const assetId = result.trim()
+    
+    // Check if asset exists
+    const foundAsset = assets.find(asset => asset.id === assetId)
+    if (foundAsset) {
+      setScannedAssetId(assetId)
+      setIsQrScannerOpen(false)
+      setShowQrOptionsDialog(false)
+    } else {
+      // Asset not found
+      setUnrecognizedQrData(result)
+      setShowUnrecognizedQrDialog(true)
+      setIsQrScannerOpen(false)
+      setShowQrOptionsDialog(false)
+    }
   }
 
   const handleQrScannerError = (error: any) => {
     console.error('QR Scanner error:', error)
-    // You could show a toast notification here
+    
+    // Check if it's a decoding error (no QR code found)
+    if (error instanceof Error && error.message.includes('No MultiFormat Readers were able to detect the code')) {
+      // Show unrecognized QR dialog for decode failures
+      setUnrecognizedQrData('Unable to decode QR code from camera')
+      setShowUnrecognizedQrDialog(true)
+      setIsQrScannerOpen(false)
+    } else {
+      // Show unrecognized QR dialog for other errors
+      setUnrecognizedQrData(`Camera Error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      setShowUnrecognizedQrDialog(true)
+      setIsQrScannerOpen(false)
+    }
   }
 
   // Handle QR image file upload
@@ -333,16 +422,65 @@ export default function AssetsPage() {
     const file = event.target.files?.[0]
     if (!file) return
 
+    console.log('=== QR SCAN DEBUG ===')
+    console.log('File uploaded:', file.name)
+    console.log('File type:', file.type)
+    console.log('File size:', file.size)
+    console.log('====================')
+
+    // Show loading toast
+    toast.loading('Scanning QR code...', { id: 'qr-scan' })
+
     try {
       // Dynamically import html5-qrcode to avoid SSR issues
       const Html5Qrcode = await import('html5-qrcode')
-      const html5QrCode = new Html5Qrcode.Html5Qrcode("qr-reader")
       
-      const result = await html5QrCode.scanFile(file, true)
-      handleQrScan(result)
+      // Create a temporary container for file scanning
+      const tempContainer = document.createElement('div')
+      tempContainer.id = 'temp-qr-reader'
+      tempContainer.style.display = 'none'
+      document.body.appendChild(tempContainer)
+      
+      try {
+        const html5QrCode = new Html5Qrcode.Html5Qrcode("temp-qr-reader")
+        
+        // Try scanning with showImage=true for better debugging
+        console.log('Attempting to scan QR code from file...')
+        const result = await html5QrCode.scanFile(file, true)
+        
+        console.log('QR scan successful! Result:', result)
+        toast.dismiss('qr-scan')
+        toast.success('QR code scanned successfully!')
+        
+        handleQrScan(result)
+      } finally {
+        // Clean up the temporary container
+        document.body.removeChild(tempContainer)
+      }
     } catch (error) {
       console.error('Failed to scan QR from file:', error)
-      // You could show a toast notification here
+      toast.dismiss('qr-scan')
+      
+      // Check if it's a decoding error (no QR code found)
+      if (error instanceof Error && error.message.includes('No MultiFormat Readers were able to detect the code')) {
+        // Show more helpful error message
+        toast.error('Cannot read QR code', {
+          description: 'The image quality might be too low or the QR code is damaged. Please try downloading and uploading a higher quality image.',
+          duration: 5000
+        })
+        
+        setUnrecognizedQrData('Unable to decode QR code. The image might be compressed or low quality. Try using a higher resolution image (at least 500x500px).')
+        setShowUnrecognizedQrDialog(true)
+      } else {
+        // Show unrecognized QR dialog for other errors
+        toast.error('QR scan failed', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+          duration: 5000
+        })
+        
+        setUnrecognizedQrData(`Error scanning QR code: ${error instanceof Error ? error.message : 'Unknown error'}. Please try uploading a clearer image.`)
+        setShowUnrecognizedQrDialog(true)
+      }
     }
   }
 
@@ -580,7 +718,7 @@ export default function AssetsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold mb-1 group-hover:text-yellow-500 transition-colors duration-300">
-                    ₱{assets.filter(asset => asset.status !== 'Dispose').reduce((sum, asset) => sum + asset.value, 0).toLocaleString()}
+                    {formatCurrency(assets.filter(asset => asset.status !== 'Dispose').reduce((sum, asset) => sum + asset.value, 0))}
                   </div>
                   <p className="text-xs text-muted-foreground group-hover:text-yellow-500/70 transition-colors duration-300">
                     Active asset portfolio value (excluding disposed)
@@ -698,6 +836,7 @@ export default function AssetsPage() {
                     <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="sticky right-0 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60 border-l w-[80px]">Actions</TableHead>
                       {visibleFields.map((fieldKey) => {
                         const field = fieldOptions.find(f => f.key === fieldKey)
                         if (!field) return null
@@ -724,6 +863,42 @@ export default function AssetsPage() {
                           className="hover:bg-muted/50 cursor-pointer"
                           onClick={() => handleAssetClick(asset)}
                         >
+                          <TableCell className="sticky right-0 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/60 border-l" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">Open menu</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleAssetClick(asset)
+                                    setIsEditing(true)
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit Asset
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    handleDeleteAsset(asset, e)
+                                  }}
+                                  className="text-red-600 focus:text-red-600 focus:bg-red-50"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Delete Asset
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
                           {visibleFields.map((fieldKey) => {
                             const field = fieldOptions.find(f => f.key === fieldKey)
                             if (!field) return null
@@ -764,7 +939,7 @@ export default function AssetsPage() {
                                     </Badge>
                                   )
                                 case 'value':
-                                  return <span className="font-medium">₱{asset.value.toLocaleString()}</span>
+                                  return <span className="font-medium">{formatCurrency(asset.value)}</span>
                                 case 'purchaseDate':
                                   return <span>{asset.purchaseDate || 'N/A'}</span>
                                 case 'serialNumber':
@@ -976,7 +1151,7 @@ export default function AssetsPage() {
                                       </div>
                                     </div>
                                     <div className="flex-shrink-0 text-right">
-                                      <p className="font-bold text-sm sm:text-base md:text-lg">₱{asset.value.toLocaleString()}</p>
+                                      <p className="font-bold text-sm sm:text-base md:text-lg">{formatCurrency(asset.value)}</p>
                                     </div>
                                   </div>
                                   
@@ -1018,7 +1193,7 @@ export default function AssetsPage() {
                             <div className="flex justify-between items-center">
                               <span className="font-semibold text-sm sm:text-base">Total Value:</span>
                               <span className="font-bold text-sm sm:text-base md:text-lg text-primary">
-                                ₱{personAssets.reduce((sum, asset) => sum + asset.value, 0).toLocaleString()}
+                                {formatCurrency(personAssets.reduce((sum, asset) => sum + asset.value, 0))}
                               </span>
                             </div>
                           </div>
@@ -1144,11 +1319,11 @@ export default function AssetsPage() {
                     <CardContent className="pt-0">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Asset ID</p>
-                          <p className="text-sm font-mono">{selectedAsset.id}</p>
+                          <p className="text-xs font-medium text-muted-foreground">Asset Tag ID</p>
+                          <p className="text-sm font-mono font-semibold">{selectedAsset.id}</p>
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Name</p>
+                          <p className="text-xs font-medium text-muted-foreground">Asset Name</p>
                           {isEditing ? (
                             <Input
                               value={editedAsset?.name || ''}
@@ -1156,7 +1331,7 @@ export default function AssetsPage() {
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm font-medium">{selectedAsset.name}</p>
+                            <p className="text-sm font-medium">{selectedAsset.name || 'N/A'}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1168,7 +1343,19 @@ export default function AssetsPage() {
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm">{selectedAsset.category || 'Uncategorized'}</p>
+                            <p className="text-sm">{selectedAsset.category || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Sub Category</p>
+                          {isEditing ? (
+                            <Input
+                              value={editedAsset?.subCategory || ''}
+                              onChange={(e) => handleFieldChange('subCategory', e.target.value)}
+                              className="text-sm h-8"
+                            />
+                          ) : (
+                            <p className="text-sm">{selectedAsset.subCategory || 'N/A'}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1180,9 +1367,12 @@ export default function AssetsPage() {
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="Available">Available</SelectItem>
-                                <SelectItem value="In Use">In Use</SelectItem>
+                                <SelectItem value="Check Out">Check Out</SelectItem>
+                                <SelectItem value="Move">Move</SelectItem>
+                                <SelectItem value="Reserve">Reserve</SelectItem>
+                                <SelectItem value="Lease">Lease</SelectItem>
+                                <SelectItem value="Dispose">Dispose</SelectItem>
                                 <SelectItem value="Maintenance">Maintenance</SelectItem>
-                                <SelectItem value="Disposed">Disposed</SelectItem>
                               </SelectContent>
                             </Select>
                           ) : (
@@ -1195,18 +1385,33 @@ export default function AssetsPage() {
                           )}
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Value</p>
+                          <p className="text-xs font-medium text-muted-foreground">Asset Type</p>
                           {isEditing ? (
                             <Input
-                              type="number"
-                              value={editedAsset?.value || 0}
-                              onChange={(e) => handleFieldChange('value', parseFloat(e.target.value) || 0)}
+                              value={editedAsset?.assetType || ''}
+                              onChange={(e) => handleFieldChange('assetType', e.target.value)}
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm font-bold text-green-600">₱{selectedAsset.value.toLocaleString()}</p>
+                            <p className="text-sm">{selectedAsset.assetType || 'N/A'}</p>
                           )}
                         </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Location & Assignment */}
+                  <Card className="border shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <div className="p-1 bg-green-100 rounded">
+                          <MapPin className="h-3 w-3 text-green-600" />
+                        </div>
+                        Location & Assignment
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <p className="text-xs font-medium text-muted-foreground">Location</p>
                           {isEditing ? (
@@ -1216,58 +1421,7 @@ export default function AssetsPage() {
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm">{selectedAsset.location}</p>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Assignment Information */}
-                  <Card className="border shadow-sm">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base font-semibold flex items-center gap-2">
-                        <div className="p-1 bg-green-100 rounded">
-                          <User className="h-3 w-3 text-green-600" />
-                        </div>
-                        Assignment Information
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Assigned To</p>
-                          {isEditing ? (
-                            <Input
-                              value={editedAsset?.assignedTo || ''}
-                              onChange={(e) => handleFieldChange('assignedTo', e.target.value)}
-                              className="text-sm h-8"
-                              placeholder="Enter assigned person"
-                            />
-                          ) : selectedAsset.assignedTo ? (
-                            <button
-                              onClick={() => {
-                                setIsAssetDetailsOpen(false)
-                                handlePersonClick(selectedAsset.assignedTo!)
-                              }}
-                              className="text-green-600 hover:text-green-800 hover:underline font-medium text-sm transition-colors"
-                            >
-                              {selectedAsset.assignedTo}
-                            </button>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">Unassigned</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Department</p>
-                          {isEditing ? (
-                            <Input
-                              value={editedAsset?.department || ''}
-                              onChange={(e) => handleFieldChange('department', e.target.value)}
-                              className="text-sm h-8"
-                            />
-                          ) : (
-                            <p className="text-sm">{selectedAsset.department || 'N/A'}</p>
+                            <p className="text-sm">{selectedAsset.location || 'N/A'}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1283,29 +1437,52 @@ export default function AssetsPage() {
                           )}
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Sub Category</p>
+                          <p className="text-xs font-medium text-muted-foreground">Department</p>
                           {isEditing ? (
                             <Input
-                              value={editedAsset?.subCategory || ''}
-                              onChange={(e) => handleFieldChange('subCategory', e.target.value)}
+                              value={editedAsset?.department || ''}
+                              onChange={(e) => handleFieldChange('department', e.target.value)}
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm">{selectedAsset.subCategory || 'N/A'}</p>
+                            <p className="text-sm">{selectedAsset.department || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Assigned To</p>
+                          {isEditing ? (
+                            <Input
+                              value={editedAsset?.assignedTo || ''}
+                              onChange={(e) => handleFieldChange('assignedTo', e.target.value)}
+                              className="text-sm h-8"
+                              placeholder="Enter assigned person"
+                            />
+                          ) : selectedAsset.assignedTo ? (
+                            <button
+                              onClick={() => {
+                                setIsAssetDetailsOpen(false)
+                                handlePersonClick(selectedAsset.assignedTo!)
+                              }}
+                              className="text-green-600 hover:text-green-800 hover:underline font-medium text-sm transition-colors text-left"
+                            >
+                              {selectedAsset.assignedTo}
+                            </button>
+                          ) : (
+                            <p className="text-sm text-muted-foreground italic">Unassigned</p>
                           )}
                         </div>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* Technical Information */}
+                  {/* Technical Specifications */}
                   <Card className="border shadow-sm">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base font-semibold flex items-center gap-2">
                         <div className="p-1 bg-purple-100 rounded">
                           <Settings className="h-3 w-3 text-purple-600" />
                         </div>
-                        Technical Details
+                        Technical Specifications
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="pt-0">
@@ -1317,6 +1494,7 @@ export default function AssetsPage() {
                               value={editedAsset?.brand || ''}
                               onChange={(e) => handleFieldChange('brand', e.target.value)}
                               className="text-sm h-8"
+                              placeholder="Enter brand"
                             />
                           ) : (
                             <p className="text-sm">{selectedAsset.brand || 'N/A'}</p>
@@ -1329,21 +1507,10 @@ export default function AssetsPage() {
                               value={editedAsset?.model || ''}
                               onChange={(e) => handleFieldChange('model', e.target.value)}
                               className="text-sm h-8"
+                              placeholder="Enter model"
                             />
                           ) : (
                             <p className="text-sm">{selectedAsset.model || 'N/A'}</p>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Serial Number</p>
-                          {isEditing ? (
-                            <Input
-                              value={editedAsset?.serialNumber || ''}
-                              onChange={(e) => handleFieldChange('serialNumber', e.target.value)}
-                              className="text-sm h-8 font-mono"
-                            />
-                          ) : (
-                            <p className="text-sm font-mono">{selectedAsset.serialNumber || 'N/A'}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1353,9 +1520,53 @@ export default function AssetsPage() {
                               value={editedAsset?.manufacturer || ''}
                               onChange={(e) => handleFieldChange('manufacturer', e.target.value)}
                               className="text-sm h-8"
+                              placeholder="Enter manufacturer"
                             />
                           ) : (
                             <p className="text-sm">{selectedAsset.manufacturer || 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Serial Number</p>
+                          {isEditing ? (
+                            <Input
+                              value={editedAsset?.serialNumber || ''}
+                              onChange={(e) => handleFieldChange('serialNumber', e.target.value)}
+                              className="text-sm h-8 font-mono"
+                              placeholder="Enter serial number"
+                            />
+                          ) : (
+                            <p className="text-sm font-mono">{selectedAsset.serialNumber || 'N/A'}</p>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Financial Information */}
+                  <Card className="border shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <div className="p-1 bg-yellow-100 rounded">
+                          <DollarSign className="h-3 w-3 text-yellow-600" />
+                        </div>
+                        Financial Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Cost / Value</p>
+                          {isEditing ? (
+                            <Input
+                              type="number"
+                              value={editedAsset?.value || 0}
+                              onChange={(e) => handleFieldChange('value', parseFloat(e.target.value) || 0)}
+                              className="text-sm h-8"
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            <p className="text-sm font-bold text-green-600">{formatCurrency(selectedAsset.value)}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1368,7 +1579,20 @@ export default function AssetsPage() {
                               className="text-sm h-8"
                             />
                           ) : (
-                            <p className="text-sm">{selectedAsset.purchaseDate || 'N/A'}</p>
+                            <p className="text-sm">{selectedAsset.purchaseDate ? formatDate(selectedAsset.purchaseDate) : 'N/A'}</p>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Date Acquired</p>
+                          {isEditing ? (
+                            <Input
+                              type="date"
+                              value={editedAsset?.dateAcquired || ''}
+                              onChange={(e) => handleFieldChange('dateAcquired', e.target.value)}
+                              className="text-sm h-8"
+                            />
+                          ) : (
+                            <p className="text-sm">{selectedAsset.dateAcquired ? formatDate(selectedAsset.dateAcquired) : 'N/A'}</p>
                           )}
                         </div>
                         <div className="space-y-1">
@@ -1378,10 +1602,35 @@ export default function AssetsPage() {
                               value={editedAsset?.purchasedFrom || ''}
                               onChange={(e) => handleFieldChange('purchasedFrom', e.target.value)}
                               className="text-sm h-8"
+                              placeholder="Enter supplier/vendor"
                             />
                           ) : (
                             <p className="text-sm">{selectedAsset.purchasedFrom || 'N/A'}</p>
                           )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* System Information */}
+                  <Card className="border shadow-sm">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base font-semibold flex items-center gap-2">
+                        <div className="p-1 bg-slate-100 rounded">
+                          <FileText className="h-3 w-3 text-slate-600" />
+                        </div>
+                        System Information
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Created At</p>
+                          <p className="text-sm text-muted-foreground">{selectedAsset.createdAt ? formatDateTime(selectedAsset.createdAt) : 'N/A'}</p>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-medium text-muted-foreground">Last Updated</p>
+                          <p className="text-sm text-muted-foreground">{selectedAsset.updatedAt ? formatDateTime(selectedAsset.updatedAt) : 'N/A'}</p>
                         </div>
                         <div className="space-y-1">
                           <p className="text-xs font-medium text-muted-foreground">Image URL</p>
@@ -1390,54 +1639,83 @@ export default function AssetsPage() {
                               value={editedAsset?.imageUrl || ''}
                               onChange={(e) => handleFieldChange('imageUrl', e.target.value)}
                               className="text-sm h-8"
-                              placeholder="Enter image URL"
+                              placeholder="https://..."
                             />
+                          ) : selectedAsset.imageUrl ? (
+                            <a 
+                              href={selectedAsset.imageUrl} 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-sm text-blue-600 hover:text-blue-800 hover:underline truncate block"
+                            >
+                              View Image
+                            </a>
                           ) : (
-                            <p className="text-sm">{selectedAsset.imageUrl || 'N/A'}</p>
+                            <p className="text-sm text-muted-foreground">N/A</p>
                           )}
                         </div>
                         <div className="space-y-1">
-                          <p className="text-xs font-medium text-muted-foreground">Image File</p>
+                          <p className="text-xs font-medium text-muted-foreground">Image File Name</p>
                           {isEditing ? (
                             <Input
                               value={editedAsset?.imageFileName || ''}
                               onChange={(e) => handleFieldChange('imageFileName', e.target.value)}
                               className="text-sm h-8"
-                              placeholder="Image file name"
+                              placeholder="filename.jpg"
                             />
                           ) : (
-                            <p className="text-sm">{selectedAsset.imageFileName || 'N/A'}</p>
+                            <p className="text-sm font-mono text-xs">{selectedAsset.imageFileName || 'N/A'}</p>
                           )}
                         </div>
                       </div>
                     </CardContent>
                   </Card>
 
-                  {/* Description */}
+                  {/* Description & Notes */}
                   <Card className="border shadow-sm">
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base font-semibold flex items-center gap-2">
                         <div className="p-1 bg-orange-100 rounded">
                           <FileText className="h-3 w-3 text-orange-600" />
                         </div>
-                        Description
+                        Description & Notes
                       </CardTitle>
                     </CardHeader>
-                    <CardContent className="pt-0">
+                    <CardContent className="pt-0 space-y-3">
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Description</p>
                       {isEditing ? (
                         <textarea
                           value={editedAsset?.description || ''}
                           onChange={(e) => handleFieldChange('description', e.target.value)}
-                          className="w-full min-h-[80px] p-3 text-sm border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            className="w-full min-h-[80px] p-3 text-sm border rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-primary/20"
                           placeholder="Enter asset description..."
                         />
                       ) : (
-                        <div className="bg-muted/30 p-3 rounded">
-                          <p className="text-sm text-muted-foreground leading-relaxed">
-                            {selectedAsset.description || 'No description available'}
+                          <div className="bg-muted/30 p-3 rounded-md border">
+                            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                              {selectedAsset.description || 'No description provided'}
                           </p>
                         </div>
                       )}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Additional Notes</p>
+                        {isEditing ? (
+                          <textarea
+                            value={editedAsset?.notes || ''}
+                            onChange={(e) => handleFieldChange('notes', e.target.value)}
+                            className="w-full min-h-[80px] p-3 text-sm border rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-primary/20"
+                            placeholder="Enter additional notes..."
+                          />
+                        ) : (
+                          <div className="bg-muted/30 p-3 rounded-md border">
+                            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
+                              {selectedAsset.notes || 'No additional notes'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </CardContent>
                   </Card>
                 </div>
@@ -1483,38 +1761,38 @@ export default function AssetsPage() {
               Choose how you want to scan the QR code
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid gap-3">
+          <div className="space-y-6">
+            <div className="space-y-3">
               <Button
                 onClick={handleCameraScan}
-                className="flex items-center gap-3 p-4 h-auto"
+                className="w-full flex items-center gap-4 p-4 h-auto justify-start"
                 variant="outline"
               >
-                <div className="p-2 bg-blue-100 rounded-lg">
+                <div className="flex-shrink-0 p-2 bg-blue-100 rounded-lg">
                   <Camera className="h-5 w-5 text-blue-600" />
                 </div>
-                <div className="text-left">
-                  <div className="font-medium">Use Camera</div>
-                  <div className="text-sm text-muted-foreground">Scan QR code with your device camera</div>
+                <div className="flex-1 text-left">
+                  <div className="font-medium text-sm">Use Camera</div>
+                  <div className="text-xs text-muted-foreground">Scan QR code with your device camera</div>
                 </div>
               </Button>
               
               <Button
                 onClick={handleFileUploadScan}
-                className="flex items-center gap-3 p-4 h-auto"
+                className="w-full flex items-center gap-4 p-4 h-auto justify-start"
                 variant="outline"
               >
-                <div className="p-2 bg-green-100 rounded-lg">
+                <div className="flex-shrink-0 p-2 bg-green-100 rounded-lg">
                   <ImageIcon className="h-5 w-5 text-green-600" />
                 </div>
-                <div className="text-left">
-                  <div className="font-medium">Upload Image</div>
-                  <div className="text-sm text-muted-foreground">Upload a QR code image file</div>
+                <div className="flex-1 text-left">
+                  <div className="font-medium text-sm">Upload Image</div>
+                  <div className="text-xs text-muted-foreground">Upload a QR code image file</div>
                 </div>
               </Button>
             </div>
             
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end">
               <Button variant="outline" onClick={() => setShowQrOptionsDialog(false)}>
                 Cancel
               </Button>
@@ -1545,6 +1823,83 @@ export default function AssetsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Unrecognized QR Code Dialog */}
+      <Dialog open={showUnrecognizedQrDialog} onOpenChange={setShowUnrecognizedQrDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <svg className="h-5 w-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              QR Code Not Recognized
+            </DialogTitle>
+            <DialogDescription>
+              {unrecognizedQrData.includes('Unable to decode') 
+                ? "The image doesn't contain a readable QR code or the QR code format is not supported."
+                : "The scanned QR code doesn't contain a valid asset ID or the asset doesn't exist in the system."
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-muted rounded-lg">
+              <div className="text-sm font-medium text-muted-foreground mb-1">Scanned Data:</div>
+              <div className="text-sm break-words bg-background p-2 rounded border">
+                {unrecognizedQrData}
+              </div>
+            </div>
+            
+            <div className="text-sm text-muted-foreground">
+              <p className="mb-2">This could happen if:</p>
+              <ul className="list-disc list-inside space-y-1 ml-4">
+                {unrecognizedQrData.includes('Unable to decode') ? (
+                  <>
+                    <li>The image doesn't contain a QR code</li>
+                    <li>The QR code is too blurry or damaged</li>
+                    <li>The image format is not supported</li>
+                    <li>The QR code is too small or too large</li>
+                    <li>The image is corrupted or incomplete</li>
+                  </>
+                ) : (
+                  <>
+                    <li>The QR code is not from this system</li>
+                    <li>The asset has been deleted</li>
+                    <li>The QR code is corrupted or damaged</li>
+                    <li>The asset ID format is incorrect</li>
+                  </>
+                )}
+              </ul>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowUnrecognizedQrDialog(false)}
+              >
+                Close
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowUnrecognizedQrDialog(false)
+                  setShowQrOptionsDialog(true)
+                }}
+              >
+                Scan Again
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        open={isDeleteOpen}
+        onOpenChange={setIsDeleteOpen}
+        onConfirm={handleConfirmDelete}
+        title="Delete Asset"
+        description="Are you sure you want to delete this asset? This action cannot be undone and will permanently remove the asset from your inventory."
+        itemName={deletingAsset?.id || deletingAsset?.name}
+      />
     </SidebarProvider>
   )
 }

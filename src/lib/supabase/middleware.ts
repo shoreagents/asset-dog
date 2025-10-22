@@ -6,9 +6,17 @@ export async function updateSession(request: NextRequest) {
     request,
   })
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error('Missing Supabase environment variables in middleware')
+    return supabaseResponse
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() {
@@ -27,44 +35,51 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
+  try {
+    // IMPORTANT: Avoid writing any logic between createServerClient and
+    // supabase.auth.getUser(). A simple mistake could make it very hard to debug
+    // issues with users being randomly logged out.
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
 
-  // Debug logging (remove in production)
-  console.log('Middleware - Path:', request.nextUrl.pathname)
-  console.log('Middleware - User authenticated:', !!user)
+    // Debug logging (remove in production)
+    console.log('Middleware - Path:', request.nextUrl.pathname)
+    console.log('Middleware - User authenticated:', !!user)
 
-  // Define public routes that don't require authentication
-  const publicRoutes = [
-    '/login',
-    '/auth',
-    '/api/auth', // Supabase auth callbacks
-  ]
+    // Define public routes that don't require authentication
+    const publicRoutes = [
+      '/login',
+      '/auth',
+      '/api/auth', // Supabase auth callbacks
+    ]
 
-  // Check if the current path is a public route
-  const isPublicRoute = publicRoutes.some(route => 
-    request.nextUrl.pathname.startsWith(route)
-  )
+    // Check if the current path is a public route
+    const isPublicRoute = publicRoutes.some(route => 
+      request.nextUrl.pathname.startsWith(route)
+    )
 
-  // If user is not authenticated and trying to access protected route
-  if (!user && !isPublicRoute) {
-    console.log('Middleware - Redirecting unauthenticated user to /login')
-    // Redirect to login page
-    const url = request.nextUrl.clone()
-    url.pathname = '/login'
-    return NextResponse.redirect(url)
-  }
+    // If user is not authenticated and trying to access protected route
+    if (!user && !isPublicRoute) {
+      console.log('Middleware - Redirecting unauthenticated user to /login')
+      // Redirect to login page
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      return NextResponse.redirect(url)
+    }
 
-  // If user is authenticated and trying to access login page, redirect to dashboard
-  if (user && request.nextUrl.pathname === '/login') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+    // If user is authenticated and trying to access login page, redirect to dashboard
+    if (user && request.nextUrl.pathname === '/login') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+  } catch (error) {
+    console.error('Middleware auth error:', error)
+    // If there's an auth error, allow the request to continue
+    // This prevents the app from breaking due to network issues
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is. If you're

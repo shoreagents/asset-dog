@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useEffect, useState } from "react"
 import {
   AudioWaveform,
   BookOpen,
@@ -448,22 +449,98 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const [companyInfo, setCompanyInfo] = useState({
+    name: "Asset Dog",
+    organizationType: "Enterprise",
+    logoUrl: null as string | null,
+  })
+
+  useEffect(() => {
+    // Load from cache immediately after hydration
+    if (typeof window !== 'undefined') {
+      const cached = localStorage.getItem('systemSettings')
+      if (cached) {
+        try {
+          const settings = JSON.parse(cached)
+          setCompanyInfo({
+            name: settings.company || "Asset Dog",
+            organizationType: settings.organizationType || "Enterprise",
+            logoUrl: settings.logoUrl || null,
+          })
+        } catch (e) {
+          console.error('Error parsing cached settings:', e)
+        }
+      }
+    }
+
+    // Fetch company info from API
+    const fetchCompanyInfo = async () => {
+      try {
+        const response = await fetch('/api/company-info')
+        if (response.ok) {
+          const data = await response.json()
+          const newInfo = {
+            name: data.company || "Asset Dog",
+            organizationType: data.organizationType || "Enterprise",
+            logoUrl: data.logoUrl || null,
+          }
+          setCompanyInfo(newInfo)
+        }
+      } catch (error) {
+        console.error('Error fetching company info:', error)
+        // Keep default values on error
+      }
+    }
+
+    // Fetch fresh data in background
+    fetchCompanyInfo()
+
+    // Listen for company info updates
+    const handleCompanyInfoUpdate = () => {
+      fetchCompanyInfo()
+    }
+    window.addEventListener('companyInfoUpdated', handleCompanyInfoUpdate)
+
+    // Optional: Set up polling to refresh every 30 seconds
+    const interval = setInterval(fetchCompanyInfo, 30000)
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('companyInfoUpdated', handleCompanyInfoUpdate)
+    }
+  }, [])
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-2">
-          {/* Company Logo Placeholder */}
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <GalleryVerticalEnd className="h-4 w-4 text-primary-foreground" />
+        <div className="flex items-center gap-2 px-2 py-2 transition-all duration-300">
+          {/* Company Logo */}
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg overflow-hidden shrink-0 transition-all duration-300">
+            {companyInfo.logoUrl ? (
+              <img 
+                src={companyInfo.logoUrl} 
+                alt={companyInfo.name}
+                className="h-full w-full object-contain transition-opacity duration-300"
+                style={{ 
+                  imageRendering: 'high-quality',
+                  WebkitFontSmoothing: 'antialiased',
+                  MozOsxFontSmoothing: 'grayscale'
+                }}
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center rounded-lg bg-primary transition-all duration-300">
+                <GalleryVerticalEnd className="h-5 w-5 text-primary-foreground" />
+              </div>
+            )}
           </div>
           
           {/* Company Name */}
-          <div className="flex flex-col">
-            <span className="text-sm font-semibold text-sidebar-foreground">
-              {data.company.name}
+          <div className="flex flex-col flex-1 min-w-0 transition-all duration-300">
+            <span className="text-sm font-semibold text-sidebar-foreground truncate transition-all duration-300">
+              {companyInfo.name}
             </span>
-            <span className="text-xs text-sidebar-foreground/70">
-              {data.company.plan}
+            <span className="text-xs text-sidebar-foreground/70 truncate transition-all duration-300">
+              {companyInfo.organizationType}
             </span>
           </div>
         </div>

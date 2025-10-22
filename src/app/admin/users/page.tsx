@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { Shield, Users, AlertCircle, CheckCircle, UserPlus, Trash2, Mail, Calendar, RefreshCw } from "lucide-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
@@ -34,6 +35,7 @@ import { createClient } from "@/lib/supabase/client"
 import { toast } from "sonner"
 
 export default function AdminUsersPage() {
+  const { formatDate } = useSystemSettings()
   const { isAdmin, loading: profileLoading, profile: currentUserProfile } = useUserProfile()
   const [users, setUsers] = useState<UserProfile[]>([])
   const [authUsers, setAuthUsers] = useState<Map<string, { email: string }>>(new Map())
@@ -411,7 +413,7 @@ export default function AdminUsersPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {new Date(user.created_at).toLocaleDateString()}
+                      {formatDate(user.created_at)}
                     </TableCell>
                     <TableCell>
                       <Select

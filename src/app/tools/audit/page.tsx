@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { AppSidebar } from "@/components/app-sidebar"
 import {
   Breadcrumb,
@@ -59,6 +60,7 @@ interface AuditItem {
 }
 
 export default function AuditPage() {
+  const { formatDate } = useSystemSettings()
   const [isAuditing, setIsAuditing] = useState(false)
   const [scanInput, setScanInput] = useState("")
   const [auditItems, setAuditItems] = useState<AuditItem[]>([])
@@ -135,7 +137,7 @@ export default function AuditPage() {
 
   const startAudit = () => {
     const auditId = `AUDIT-${Date.now()}`
-    const auditName = `Asset Audit - ${new Date().toLocaleDateString()}`
+    const auditName = `Asset Audit - ${formatDate(new Date())}`
     
     setCurrentAudit({
       id: auditId,

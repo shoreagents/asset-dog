@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { toast } from "sonner"
+import { useSystemSettings } from "@/contexts/system-settings-context"
 import { Asset } from "@/lib/lists-data"
 import { useInstantAssets } from "@/hooks/use-instant-assets"
 import { useUpdateAsset } from "@/hooks/use-assets-query"
@@ -35,10 +36,11 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar"
-import { CalendarIcon, ArrowLeft, UserCheck, Plus, X, Package, DollarSign, CheckCircle } from "lucide-react"
+import { CalendarIcon, ArrowLeft, UserCheck, Plus, X, Package, DollarSign, CheckCircle, Camera, Image as ImageIcon } from "lucide-react"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 import Link from "next/link"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 // Get available assets from useAssets hook (exclude maintenance and disposed assets)
 const getAvailableAssets = (assets: Asset[]) => {
@@ -80,6 +82,7 @@ const checkoutSchema = z.object({
 type CheckoutFormValues = z.infer<typeof checkoutSchema>
 
 export default function CheckoutPage() {
+  const { formatCurrency } = useSystemSettings()
   const router = useRouter()
   const { data: assets = [], isLoading, error } = useInstantAssets()
   const updateAssetMutation = useUpdateAsset()
@@ -92,6 +95,14 @@ export default function CheckoutPage() {
   const [showSelectAssets, setShowSelectAssets] = useState(false)
   const [showAssetSuggestions, setShowAssetSuggestions] = useState(false)
   const [filteredAssets, setFilteredAssets] = useState<Asset[]>([])
+  
+  // QR Scanner states
+  const [isQrScannerOpen, setIsQrScannerOpen] = useState(false)
+  const [scannedAssetId, setScannedAssetId] = useState<string | null>(null)
+  const [showQrOptionsDialog, setShowQrOptionsDialog] = useState(false)
+  const [isCameraScanning, setIsCameraScanning] = useState(false)
+  const [showUnrecognizedQrDialog, setShowUnrecognizedQrDialog] = useState(false)
+  const [unrecognizedQrData, setUnrecognizedQrData] = useState<string>('')
 
   // Get available assets from the loaded assets
   const availableAssets = getAvailableAssets(assets)
@@ -196,6 +207,230 @@ export default function CheckoutPage() {
   const removeAsset = (assetId: string) => {
     setSelectedAssets(prev => prev.filter(asset => asset.id !== assetId))
   }
+
+  // QR Scanner functionality
+  const handleQrScan = (result: string) => {
+    console.log('=== QR SCAN RESULT ===')
+    console.log('Raw scanned data:', result)
+    console.log('Available assets count:', availableAssets.length)
+    console.log('Available asset IDs:', availableAssets.map(a => a.id).join(', '))
+    
+    try {
+      // Try to parse as JSON first (for our structured QR codes)
+      const qrData = JSON.parse(result)
+      console.log('Parsed as JSON:', qrData)
+      
+      if (qrData.type === 'asset' && qrData.id) {
+        console.log('Looking for asset with ID:', qrData.id)
+        
+        // Check if asset exists
+        const foundAsset = availableAssets.find(asset => asset.id === qrData.id)
+        console.log('Found asset:', foundAsset ? 'YES' : 'NO')
+        
+        if (foundAsset) {
+          console.log('Asset found, adding to checkout')
+          setScannedAssetId(qrData.id)
+          setIsQrScannerOpen(false)
+          setShowQrOptionsDialog(false)
+          return
+        } else {
+          // Asset not found
+          console.log('Asset not found in available assets')
+          setUnrecognizedQrData(result)
+          setShowUnrecognizedQrDialog(true)
+          setIsQrScannerOpen(false)
+          setShowQrOptionsDialog(false)
+          return
+        }
+      }
+    } catch (error) {
+      // If not JSON, treat as plain asset ID
+      console.log('QR code is not JSON format, treating as plain asset ID')
+    }
+    
+    // Treat the result as a plain asset ID
+    const assetId = result.trim()
+    console.log('Trying plain asset ID:', assetId)
+    
+    // Check if asset exists
+    const foundAsset = availableAssets.find(asset => asset.id === assetId)
+    console.log('Found asset by plain ID:', foundAsset ? 'YES' : 'NO')
+    
+    if (foundAsset) {
+      console.log('Asset found, adding to checkout')
+      setScannedAssetId(assetId)
+      setIsQrScannerOpen(false)
+      setShowQrOptionsDialog(false)
+    } else {
+      // Asset not found
+      console.log('Asset not found in available assets')
+      setUnrecognizedQrData(result)
+      setShowUnrecognizedQrDialog(true)
+      setIsQrScannerOpen(false)
+      setShowQrOptionsDialog(false)
+    }
+    console.log('======================')
+  }
+
+  const handleQrScannerError = (error: any) => {
+    // Ignore routine "not found" errors during scanning - these are normal when no QR code is in view
+    const errorMessage = typeof error === 'string' ? error : error?.message || ''
+    
+    if (errorMessage.includes('No MultiFormat Readers were able to detect the code') || 
+        errorMessage.includes('NotFoundException')) {
+      // This is normal - camera is scanning but hasn't found a QR code yet
+      // Don't show error dialog, just keep scanning
+      return
+    }
+    
+    // Only log and handle actual errors (like camera permission issues)
+    console.error('QR Scanner error:', error)
+    
+    // Show error dialog for real errors (not routine scanning failures)
+    setUnrecognizedQrData(`Camera Error: ${errorMessage || 'Unknown error'}`)
+    setShowUnrecognizedQrDialog(true)
+    setIsQrScannerOpen(false)
+  }
+
+  // Handle QR image file upload
+  const handleQrFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    console.log('=== QR SCAN DEBUG ===')
+    console.log('File uploaded:', file.name)
+    console.log('File type:', file.type)
+    console.log('File size:', file.size)
+    console.log('====================')
+
+    // Show loading toast
+    toast.loading('Scanning QR code...', { id: 'qr-scan' })
+
+    try {
+      // Dynamically import html5-qrcode to avoid SSR issues
+      const Html5Qrcode = await import('html5-qrcode')
+      
+      // Create a temporary container for file scanning
+      const tempContainer = document.createElement('div')
+      tempContainer.id = 'temp-qr-reader'
+      tempContainer.style.display = 'none'
+      document.body.appendChild(tempContainer)
+      
+      try {
+        const html5QrCode = new Html5Qrcode.Html5Qrcode("temp-qr-reader")
+        
+        // Try scanning with showImage=true for better debugging
+        console.log('Attempting to scan QR code from file...')
+        const result = await html5QrCode.scanFile(file, true)
+        
+        console.log('QR scan successful! Result:', result)
+        toast.dismiss('qr-scan')
+        toast.success('QR code scanned successfully!')
+        
+        handleQrScan(result)
+      } finally {
+        // Clean up the temporary container
+        document.body.removeChild(tempContainer)
+      }
+    } catch (error) {
+      console.error('Failed to scan QR from file:', error)
+      toast.dismiss('qr-scan')
+      
+      // Check if it's a decoding error (no QR code found)
+      if (error instanceof Error && error.message.includes('No MultiFormat Readers were able to detect the code')) {
+        // Show more helpful error message
+        toast.error('Cannot read QR code', {
+          description: 'The image quality might be too low or the QR code is damaged. Please try downloading and uploading a higher quality image.',
+          duration: 5000
+        })
+        
+        setUnrecognizedQrData('Unable to decode QR code. The image might be compressed or low quality. Try using a higher resolution image (at least 500x500px).')
+        setShowUnrecognizedQrDialog(true)
+      } else {
+        // Show unrecognized QR dialog for other errors
+        toast.error('QR scan failed', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+          duration: 5000
+        })
+        
+        setUnrecognizedQrData(`Error scanning QR code: ${error instanceof Error ? error.message : 'Unknown error'}. Please try uploading a clearer image.`)
+        setShowUnrecognizedQrDialog(true)
+      }
+    }
+  }
+
+  // Handle camera scanning option
+  const handleCameraScan = () => {
+    setShowQrOptionsDialog(false)
+    setIsCameraScanning(true)
+    setIsQrScannerOpen(true)
+  }
+
+  // Handle file upload option
+  const handleFileUploadScan = () => {
+    setShowQrOptionsDialog(false)
+    setIsCameraScanning(false)
+    // Trigger file input
+    const fileInput = document.createElement('input')
+    fileInput.type = 'file'
+    fileInput.accept = 'image/*'
+    fileInput.onchange = (event) => {
+      const target = event.target as HTMLInputElement
+      if (target.files?.[0]) {
+        handleQrFileUpload({ target } as React.ChangeEvent<HTMLInputElement>)
+      }
+    }
+    fileInput.click()
+  }
+
+  // Handle scanned asset ID
+  React.useEffect(() => {
+    if (scannedAssetId) {
+      // Find the asset by ID
+      const foundAsset = availableAssets.find(asset => asset.id === scannedAssetId)
+      if (foundAsset) {
+        selectAsset(foundAsset)
+        setScannedAssetId(null) // Reset after adding
+      } else {
+        // Asset not found
+        console.log('Asset not found:', scannedAssetId)
+        setScannedAssetId(null) // Reset
+      }
+    }
+  }, [scannedAssetId, availableAssets])
+
+  // Initialize QR scanner when dialog opens
+  React.useEffect(() => {
+    if (isQrScannerOpen && isCameraScanning) {
+      // Dynamically import html5-qrcode to avoid SSR issues
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        const html5QrCode = new Html5Qrcode("qr-reader")
+        
+        html5QrCode.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 250 }
+          },
+          (decodedText) => {
+            html5QrCode.stop()
+            handleQrScan(decodedText)
+          },
+          handleQrScannerError
+        ).catch((err) => {
+          console.error("Failed to start QR scanner:", err)
+          toast.error("Camera access denied", {
+            description: "Please allow camera access to scan QR codes"
+          })
+          setIsQrScannerOpen(false)
+        })
+
+        return () => {
+          html5QrCode.stop().catch(() => {})
+        }
+      })
+    }
+  }, [isQrScannerOpen, isCameraScanning])
 
   const onSubmit = async (data: CheckoutFormValues) => {
     if (selectedAssets.length === 0) {
@@ -383,7 +618,7 @@ export default function CheckoutPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300">₱{assets.filter(a => a.status === "Check Out").reduce((sum, asset) => sum + asset.value, 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400 group-hover:text-purple-700 dark:group-hover:text-purple-300 transition-colors duration-300">{formatCurrency(assets.filter(a => a.status === "Check Out").reduce((sum, asset) => sum + asset.value, 0))}</div>
                   <p className="text-xs text-muted-foreground group-hover:text-purple-500 dark:group-hover:text-purple-400 transition-colors duration-300">
                     Value of checked out assets
                   </p>
@@ -413,6 +648,16 @@ export default function CheckoutPage() {
                     
                     {/* Asset ID Input */}
                     <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="default"
+                        onClick={() => setShowQrOptionsDialog(true)}
+                        className="flex items-center gap-2"
+                      >
+                        <Camera className="h-4 w-4" />
+                        <span className="hidden sm:inline">Scan QR</span>
+                      </Button>
                       <div className="relative flex-1">
                         <Input
                           placeholder="Enter Asset ID (e.g., AST-001)"
@@ -448,7 +693,7 @@ export default function CheckoutPage() {
                                   >
                                     <div className="font-medium text-sm">{asset.id}</div>
                                     <div className="text-xs text-muted-foreground">
-                                      {asset.name || 'Unnamed Asset'} • {asset.category || 'Uncategorized'} • ₱{asset.value.toLocaleString()}
+                                      {asset.name || 'Unnamed Asset'} • {asset.category || 'Uncategorized'} • {formatCurrency(asset.value)}
                                     </div>
                                   </button>
                                 ))}
@@ -484,7 +729,7 @@ export default function CheckoutPage() {
                                     <div className="flex-1 min-w-0">
                                       <div className="font-medium truncate">{asset.name || asset.id}</div>
                                       <div className="text-sm text-muted-foreground truncate">
-                                        {asset.id} • {asset.category || 'Uncategorized'} • ₱{asset.value.toLocaleString()}
+                                        {asset.id} • {asset.category || 'Uncategorized'} • {formatCurrency(asset.value)}
                                       </div>
                                     </div>
                                     <Button
@@ -886,6 +1131,148 @@ export default function CheckoutPage() {
           )}
         </div>
       </SidebarInset>
+
+      {/* QR Options Dialog */}
+      <Dialog open={showQrOptionsDialog} onOpenChange={setShowQrOptionsDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5 text-primary" />
+              Scan QR Code
+            </DialogTitle>
+            <DialogDescription>
+              Choose how you want to scan the QR code
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <Button
+                onClick={handleCameraScan}
+                className="w-full flex items-center gap-4 p-4 h-auto justify-start"
+                variant="outline"
+              >
+                <div className="flex-shrink-0 p-2 bg-blue-100 rounded-lg">
+                  <Camera className="h-5 w-5 text-blue-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="font-medium text-sm">Use Camera</div>
+                  <div className="text-xs text-muted-foreground">Scan QR code with your device camera</div>
+                </div>
+              </Button>
+              
+              <Button
+                onClick={handleFileUploadScan}
+                className="w-full flex items-center gap-4 p-4 h-auto justify-start"
+                variant="outline"
+              >
+                <div className="flex-shrink-0 p-2 bg-green-100 rounded-lg">
+                  <ImageIcon className="h-5 w-5 text-green-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="font-medium text-sm">Upload Image</div>
+                  <div className="text-xs text-muted-foreground">Upload a QR code image file</div>
+                </div>
+              </Button>
+            </div>
+            
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setShowQrOptionsDialog(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Scanner Dialog */}
+      <Dialog open={isQrScannerOpen} onOpenChange={setIsQrScannerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Camera className="h-5 w-5 text-primary" />
+              Scan QR Code
+            </DialogTitle>
+            <DialogDescription>
+              Point your camera at a QR code to scan an asset
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div id="qr-reader" className="w-full"></div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsQrScannerOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unrecognized QR Code Dialog */}
+      <Dialog open={showUnrecognizedQrDialog} onOpenChange={setShowUnrecognizedQrDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <svg className="h-5 w-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              QR Code Not Recognized
+            </DialogTitle>
+            <DialogDescription>
+              {unrecognizedQrData.includes('Unable to decode') 
+                ? "The image doesn't contain a readable QR code or the QR code format is not supported."
+                : "The scanned QR code doesn't contain a valid asset ID or the asset doesn't exist in the system."
+              }
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="p-3 bg-muted rounded-lg">
+              <div className="text-sm font-medium text-muted-foreground mb-1">Scanned Data:</div>
+              <div className="text-sm break-words bg-background p-2 rounded border">
+                {unrecognizedQrData}
+              </div>
+            </div>
+            
+            <div className="text-sm text-muted-foreground">
+              <p className="mb-2">This could happen if:</p>
+              <ul className="list-disc list-inside space-y-1 ml-4">
+                {unrecognizedQrData.includes('Unable to decode') ? (
+                  <>
+                    <li>The image doesn't contain a QR code</li>
+                    <li>The QR code is too blurry or damaged</li>
+                    <li>The image format is not supported</li>
+                    <li>The QR code is too small or too large</li>
+                    <li>The image is corrupted or incomplete</li>
+                  </>
+                ) : (
+                  <>
+                    <li>The QR code is not from this system</li>
+                    <li>The asset has been deleted or checked out</li>
+                    <li>The QR code is corrupted or damaged</li>
+                    <li>The asset ID format is incorrect</li>
+                  </>
+                )}
+              </ul>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setShowUnrecognizedQrDialog(false)}
+              >
+                Close
+              </Button>
+              <Button 
+                onClick={() => {
+                  setShowUnrecognizedQrDialog(false)
+                  setShowQrOptionsDialog(true)
+                }}
+              >
+                Scan Again
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SidebarProvider>
   )
 }
